@@ -46,11 +46,15 @@ struct VS_OUTPUT
 VS_OUTPUT VS(uint vID : SV_VertexID)
 {
     VS_OUTPUT output = (VS_OUTPUT)0;
-    float2 quad[6] = { -1, -1, 1, -1, -1, 1, 1, -1, 1, 1, -1, 1 };
+    //float2 quad[6] = { -1, -1, 1, -1, -1, 1, 1, -1, 1, 1, -1, 1 };
+    float2 quad[2] = {
+        float2(0, 0), float2(1, 0)
+        
+    };
     float2 p = quad[vID];
     float4 pos = float4(quad[vID], 0, 1);
     output.pos = mul(pos, mul(view[0], proj[0]));
-    output.uv = float2(1, -1) * p / 2. + .5;
+    output.uv = p;
     return output;
 }
 
