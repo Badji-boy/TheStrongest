@@ -1,3 +1,11 @@
+// Вызываем константные буферы. Структуры должны соответствовать заданным на CPU //
+///////////////////////////////////////////////////////////////////////////////////
+
+cbuffer drawerV : register(b0)
+{
+    float drawConst[32];
+}
+
 cbuffer global : register(b5)
 {
     float4 gConst[32];
@@ -22,6 +30,9 @@ cbuffer drawMat : register(b2)
     float hilight;
 };
 
+///////////////////////////////////////////////////////////////////////////////////
+
+// Задаём структуру выходных данных из вершинного шейдера
 struct VS_OUTPUT
 {
     float4 pos : SV_POSITION;
@@ -31,30 +42,30 @@ struct VS_OUTPUT
     float2 uv : TEXCOORD0;
 };
 
-//float3 rotY(float3 pos, float a)
-//{
-//    float3x3 m =
-//    {
-//        cos(a), 0, sin(a),
-//        0, 1, 0,
-//        -sin(a), 0, cos(a)
-//    };
-//    pos = mul(pos, m);
-//    return pos;
-//}
-
-VS_OUTPUT VS(uint vID : SV_VertexID)
+// Основная функция шейдера
+VS_OUTPUT VS(uint vID : SV_VertexID) // vID это индекс вершины, переданный в шейдер
 {
     VS_OUTPUT output = (VS_OUTPUT)0;
-    //float2 quad[6] = { -1, -1, 1, -1, -1, 1, 1, -1, 1, 1, -1, 1 };
-    float2 quad[2] = {
-        float2(0, 0), float2(1, 0)
-        
-    };
-    float2 p = quad[vID];
-    float4 pos = float4(quad[vID], 0, 1);
-    output.pos = mul(pos, mul(view[0], proj[0]));
-    output.uv = p;
-    return output;
+
+    uint n = drawConst[0]; // Получаем n из константного буфера
+    uint instanceID = vID / 6; // Вычисляем индекс полигона, состоящего из 6 вершин
+
+    // Строка и столбец текущего полигона
+    float row = instanceID % n;
+    float col = instanceID / n;
+
+    float2 quad[6] = { -1, -1, 1, -1, -1, 1, 1, -1, 1, 1, -1, 1 }; // Массив с позициями x и y для вершин внутри одного полигона
+    float2 p = quad[vID % 6]; // Получаем локальную позицию точки внутри полигона
+
+    // Преобразовываем позицию во float4, добавляем смещение по строкам и столбцам и выравниваем плоскость по центру экрана
+    float4 pos = float4(p, 0, 1);
+    pos.y += col * 2;
+    pos.x += row * 2;
+    pos.xy -= (float)n - 1;
+
+    output.pos = mul(pos, mul(view[0], proj[0])); // Позиция точки, умноженная на матрицы view и projection, теперь представляющая собой позицию на проекции камеры
+    output.uv = p; // Устанавливаем UV координаты
+
+    return output; // Возвращаем данные
 }
 

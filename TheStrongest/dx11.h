@@ -866,50 +866,6 @@ struct color4 {
 	float a;
 };
 
-namespace Bresenham
-{
-	struct Point {
-		int x, y;
-	};
-
-	void DrawLine(HDC hdc)
-	{
-		Point start;
-		Point end;
-		start.x = 50;
-		start.y = 100;
-		end.x = 1000;
-		end.y = 100;
-		int dx = abs(end.x - start.x);
-		int dy = abs(end.y - start.y);
-		int sx = (start.x < end.x) ? 1 : -1;
-		int sy = (start.y < end.y) ? 1 : -1;
-		int err = dx - dy;
-
-		Point current = start;
-
-		while (true) {
-			// Установка пикселя (здесь нужно реализовать отрисовку)
-			SetPixel(hdc, current.x, current.y, RGB(255, 0, 0));
-
-			if (current.x == end.x && current.y == end.y)
-				break;
-
-			int err2 = err * 2;
-
-			if (err2 > -dy) {
-				err -= dy;
-				current.x += sx;
-			}
-
-			if (err2 < dx) {
-				err += dx;
-				current.y += sy;
-			}
-		}
-	}
-}
-
 namespace Draw
 {
 
@@ -961,8 +917,8 @@ namespace Camera
 	void Camera()
 	{
 		float t = timer::frameBeginTime * .001;
-		float angle = 100;
-		float a = 3.5;
+		float angle = 1000;
+		float a = 10;
 		XMVECTOR Eye = XMVectorSet(sin(t) * a, 0, cos(t) * a, 0.0f);
 		XMVECTOR At = XMVectorSet(0, 0, 0, 0.0f);
 		XMVECTOR Up = XMVectorSet(0, 1, 0, 0.0f);
@@ -981,7 +937,7 @@ void mainLoop()
 {
 	frameConst();
 
-	InputAssembler::IA(InputAssembler::topology::lineList);
+	InputAssembler::IA(InputAssembler::topology::triList);
 	Blend::Blending(Blend::blendmode::alpha, Blend::blendop::add);
 
 	Textures::RenderTarget(0, 0);
@@ -995,7 +951,8 @@ void mainLoop()
 	ConstBuf::ConstToPixel(4);
 
 	Camera::Camera();
-
-	Draw::NullDrawer(1, 1);
+	int n = 6;
+	ConstBuf::drawerV[0] = n;
+	Draw::NullDrawer(n * n, 1);
 	Draw::Present();
 }
