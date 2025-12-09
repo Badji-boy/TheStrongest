@@ -11,6 +11,7 @@
 #include <DirectXPackedVector.h>
 #include <debugapi.h>
 
+
 using namespace DirectX;
 
 #define FRAMES_PER_SECOND 60
@@ -63,6 +64,7 @@ ID3D11Device* device = NULL;
 ID3D11DeviceContext* context = NULL;
 IDXGISwapChain* swapChain = NULL;
 
+
 int width;
 int height;
 float aspect;
@@ -73,55 +75,6 @@ enum targetshader { vertex, pixel, both };
 struct rect {
 	int x; int y; int z; int w;
 };
-
-namespace Rasterizer
-{
-
-	enum class cullmode { off, front, back, wireframe };
-
-	ID3D11RasterizerState* rasterState[4];
-
-	void Cull(cullmode mode)
-	{
-		context->RSSetState(rasterState[(int)mode]);
-	}
-
-	void Scissors(rect r)
-	{
-		D3D11_RECT rect = { r.x,r.y,r.z,r.w };
-		context->RSSetScissorRects(1, &rect);
-	}
-
-	void Init()
-	{
-		D3D11_RASTERIZER_DESC rasterizerState;
-		rasterizerState.FillMode = D3D11_FILL_SOLID;
-		rasterizerState.CullMode = D3D11_CULL_NONE;
-		rasterizerState.FrontCounterClockwise = true;
-		rasterizerState.DepthBias = false;
-		rasterizerState.DepthBiasClamp = 0;
-		rasterizerState.SlopeScaledDepthBias = 0;
-		rasterizerState.DepthClipEnable = false;
-		rasterizerState.ScissorEnable = true;
-		rasterizerState.MultisampleEnable = false;
-		rasterizerState.AntialiasedLineEnable = true;
-		device->CreateRasterizerState(&rasterizerState, &rasterState[0]);
-
-		rasterizerState.CullMode = D3D11_CULL_FRONT;
-		device->CreateRasterizerState(&rasterizerState, &rasterState[1]);
-
-		rasterizerState.CullMode = D3D11_CULL_BACK;
-		device->CreateRasterizerState(&rasterizerState, &rasterState[2]);
-
-		rasterizerState.CullMode = D3D11_CULL_NONE;
-		rasterizerState.FillMode = D3D11_FILL_WIREFRAME;
-		device->CreateRasterizerState(&rasterizerState, &rasterState[3]);
-
-		context->RSSetState(rasterState[0]);
-		Scissors(rect{ 0, 0, width, height });
-	}
-
-}
 
 namespace Textures
 {
@@ -177,7 +130,6 @@ namespace Textures
 		tdesc.SampleDesc.Count = 1;
 		tdesc.SampleDesc.Quality = 0;
 		tdesc.Usage = D3D11_USAGE_DEFAULT;
-		tdesc.Format = dxTFormat[cTex.format];
 
 		if (cTex.type == cube)
 		{
@@ -189,26 +141,6 @@ namespace Textures
 
 	}
 
-	void ShaderRes(int i)
-	{
-		svDesc.Format = tdesc.Format;
-		svDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-
-		if (Texture[i].type == cube)
-		{
-			svDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURECUBE;
-			svDesc.TextureCube.MostDetailedMip = 0;
-			svDesc.TextureCube.MipLevels = -1;
-
-		}
-		else
-		{
-			svDesc.Texture2D.MipLevels = -1;
-			svDesc.Texture2D.MostDetailedMip = 0;
-		}
-
-		HRESULT hr = device->CreateShaderResourceView(Texture[i].pTexture, &svDesc, &Texture[i].TextureResView);
-	}
 
 	void rtView(int i)
 	{
@@ -292,8 +224,7 @@ namespace Textures
 
 		if (i > 0)
 		{
-			CreateTex(i);
-			ShaderRes(i);
+			//CreateTex(i);
 			rtView(i);
 		}
 
@@ -328,7 +259,6 @@ namespace Textures
 		context->RSSetViewports(1, &vp);
 
 		rect r = rect{ 0,0,(int)vp.Width ,(int)vp.Height };
-		Rasterizer::Scissors(r);
 	}
 
 	void CopyColor(int dst, int src)
@@ -381,12 +311,82 @@ namespace Textures
 
 }
 
+namespace Device
+{
+
+#define DirectXDebugMode false
+
+	D3D_DRIVER_TYPE	driverType = D3D_DRIVER_TYPE_NULL;
+
+	void Init()
+	{
+		HRESULT hr;
+
+		aspect = float(height) / float(width);
+		iaspect = float(width) / float(height);
+
+		DXGI_SWAP_CHAIN_DESC sd;
+		ZeroMemory(&sd, sizeof(sd));
+		sd.BufferCount = 2;
+		sd.BufferDesc.Width = width;
+		sd.BufferDesc.Height = height;
+		sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		sd.BufferDesc.RefreshRate.Numerator = FRAMES_PER_SECOND;
+		sd.BufferDesc.RefreshRate.Denominator = 1;
+		sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+		sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+		sd.OutputWindow = hWnd;
+		sd.SampleDesc.Count = 1;
+		sd.SampleDesc.Quality = 0;
+		sd.Windowed = true;
+
+
+		hr = D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, DirectXDebugMode ? D3D11_CREATE_DEVICE_DEBUG : 0, 0, 0, D3D11_SDK_VERSION, &sd, &swapChain, &device, NULL, &context);
+
+		Textures::Texture[0].pTexture = NULL;
+		hr = swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&Textures::Texture[0].pTexture);
+
+		hr = device->CreateRenderTargetView(Textures::Texture[0].pTexture, NULL, &Textures::Texture[0].RenderTargetView[0][0]);
+
+		Textures::Texture[0].pTexture->Release();
+	}
+
+}
+
+namespace InputAssembler
+{
+
+	enum class topology { triList, lineList, lineStrip };
+
+	void IA(topology topoType)
+	{
+		D3D11_PRIMITIVE_TOPOLOGY ttype = D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+		switch (topoType)
+		{
+		case topology::triList:
+			ttype = D3D_PRIMITIVE_TOPOLOGY::D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+			break;
+		case topology::lineList:
+			ttype = D3D_PRIMITIVE_TOPOLOGY::D3D10_PRIMITIVE_TOPOLOGY_LINELIST;
+			break;
+		case topology::lineStrip:
+			ttype = D3D_PRIMITIVE_TOPOLOGY::D3D10_PRIMITIVE_TOPOLOGY_LINESTRIP;
+		}
+
+		context->IASetPrimitiveTopology(ttype);
+		//context->IASetInputLayout(NULL);
+		//context->IASetVertexBuffers(0, 0, NULL, NULL, NULL);
+	}
+
+}
+
 
 namespace Shaders {
 
 	typedef struct {
 		ID3D11VertexShader* pShader;
 		ID3DBlob* pBlob;
+		ID3D11InputLayout* pLayout;
 	} VertexShader;
 
 	typedef struct {
@@ -443,6 +443,8 @@ namespace Shaders {
 			hr = device->CreateVertexShader(VS[i].pBlob->GetBufferPointer(), VS[i].pBlob->GetBufferSize(), NULL, &VS[i].pShader);
 		}
 
+		
+
 	}
 
 	void CreatePS(int i, LPCWSTR name)
@@ -450,7 +452,7 @@ namespace Shaders {
 		HRESULT hr;
 
 		hr = D3DCompileFromFile(name, NULL, D3D_COMPILE_STANDARD_FILE_INCLUDE, "PS", "ps_4_1", NULL, NULL, &PS[i].pBlob, &pErrorBlob);
-		CompilerLog(name, hr, "vertex shader compiled: ");
+		CompilerLog(name, hr, "pixel shader compiled: ");
 
 		if (hr == S_OK)
 		{
@@ -461,8 +463,8 @@ namespace Shaders {
 
 	void Init()
 	{
-		CreateVS(0, nameToPatchLPCWSTR("VS.h"));
-		CreatePS(0, nameToPatchLPCWSTR("PS.h"));
+		CreateVS(0, nameToPatchLPCWSTR("..\\TheStrongest\\VS.h"));
+		CreatePS(0, nameToPatchLPCWSTR("..\\TheStrongest\\PS.h"));
 	}
 
 	void vShader(unsigned int n)
@@ -477,365 +479,67 @@ namespace Shaders {
 
 }
 
-namespace Sampler
+namespace Buffers
 {
-	enum class filter { linear, point, minPoint_magLinear };
-	enum class addr { clamp, wrap };
-
-	ID3D11SamplerState* pSampler[3][2][2];//filter, addressU, addressV
-	ID3D11SamplerState* pSamplerComp;//for shadowmapping
-
-	void Init()
+	ID3D11Buffer* buffer;
+	struct SimpleVertex
 	{
-		D3D11_SAMPLER_DESC sampDesc;
-		ZeroMemory(&sampDesc, sizeof(sampDesc));
+		XMFLOAT3 Pos;
 
-		sampDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-		sampDesc.MinLOD = 0;
-		sampDesc.MaxLOD = D3D11_FLOAT32_MAX;
+	};
 
-		D3D11_FILTER filter[] = { D3D11_FILTER_MIN_MAG_MIP_LINEAR,
-								  D3D11_FILTER_MIN_MAG_MIP_POINT,
-								  D3D11_FILTER_MIN_POINT_MAG_MIP_LINEAR };
-
-		D3D11_TEXTURE_ADDRESS_MODE address[] = { D3D11_TEXTURE_ADDRESS_CLAMP, D3D11_TEXTURE_ADDRESS_WRAP };
-
-		constexpr byte fc = sizeof(filter) / sizeof(D3D11_FILTER);
-		constexpr byte ac = sizeof(address) / sizeof(D3D11_TEXTURE_ADDRESS_MODE);
-
-		sampDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
-
-		for (byte f = 0; f < fc; f++)
-		{
-			sampDesc.Filter = (D3D11_FILTER)filter[f];
-
-			for (byte u = 0; u < ac; u++)
-			{
-				for (byte v = 0; v < ac; v++)
-				{
-					sampDesc.AddressU = address[u];
-					sampDesc.AddressV = address[v];
-					HRESULT hr = device->CreateSamplerState(&sampDesc, &pSampler[f][u][v]);
-				}
-			}
-		}
-
-		sampDesc.AddressU = D3D11_TEXTURE_ADDRESS_BORDER;
-		sampDesc.AddressV = D3D11_TEXTURE_ADDRESS_BORDER;
-		for (int x = 0; x < 4; x++) sampDesc.BorderColor[x] = 0;
-		sampDesc.ComparisonFunc = D3D11_COMPARISON_LESS;
-		sampDesc.Filter = D3D11_FILTER_COMPARISON_MIN_MAG_MIP_LINEAR;
-		device->CreateSamplerState(&sampDesc, &pSamplerComp);
-
-	}
-
-	void Sampler(targetshader shader, unsigned int slot, filter filterType, addr addressU, addr addressV)
+	SimpleVertex vertices[] =
 	{
-		if (shader == targetshader::vertex) context->VSSetSamplers(slot, 1, &pSampler[(int)filterType][(int)addressU][(int)addressV]);
-		if (shader == targetshader::pixel) context->PSSetSamplers(slot, 1, &pSampler[(int)filterType][(int)addressU][(int)addressV]);
-	}
+		XMFLOAT3(0.0f, 0.5f, 0.5f),
+		XMFLOAT3(0.5f, -0.5f, 0.5f),
+		XMFLOAT3(-0.5f, -0.5f, 0.5f)
+	};
 
-	void SamplerComp(unsigned int slot)
-	{
-		context->PSSetSamplers(slot, 1, &pSamplerComp);
-	}
-
-
-
-}
-
-namespace ConstBuf
-{
-	ID3D11Buffer* buffer[6];
-
-#define constCount 32
-
-	//b0 - use "params" label in shader
-	float drawerV[constCount];//update per draw call
-
-	//b1 - use "params" label in shader
-	float drawerP[constCount];//update per draw call
-
-	//b2
-	struct {
-		XMMATRIX model;
-		float hilight;
-	} drawerMat;//update per draw call
-
-	//b3 
-	struct {
-		XMMATRIX world[2];
-		XMMATRIX view[2];
-		XMMATRIX proj[2];
-	} camera;//update per camera set
-
-	//b4
-	struct {
-		XMFLOAT4 time;
-		XMFLOAT4 aspect;
-	} frame;//update per frame
-
-	//b5
-	XMFLOAT4 global[constCount];//update once on start
-
-	int roundUp(int n, int r)
-	{
-		return 	n - (n % r) + r;
-	}
-
-	void Create(ID3D11Buffer*& buf, int size)
+	void Create(ID3D11Buffer*& buf)
 	{
 		D3D11_BUFFER_DESC bd;
 		ZeroMemory(&bd, sizeof(bd));
 		bd.Usage = D3D11_USAGE_DEFAULT;
-		bd.ByteWidth = roundUp(size, 16);
-		bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+		bd.ByteWidth = sizeof(SimpleVertex) * 3;
+		bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
 		bd.CPUAccessFlags = 0;
-		bd.StructureByteStride = 16;
+		bd.MiscFlags = 0;
 
+		D3D11_SUBRESOURCE_DATA InitData; // Структура, содержащая данные буфера
+		ZeroMemory(&InitData, sizeof(InitData)); // очищаем ее
+		InitData.pSysMem = vertices;
 		HRESULT hr = device->CreateBuffer(&bd, NULL, &buf);
-	}
 
-	void Init()
-	{
-		Create(buffer[0], sizeof(drawerV));
-		Create(buffer[1], sizeof(drawerP));
-		Create(buffer[2], sizeof(drawerMat));
-		Create(buffer[3], sizeof(camera));
-		Create(buffer[4], sizeof(frame));
-		Create(buffer[5], sizeof(global));
-	}
-
-	template <typename T>
-	void Update(int i, T* data)
-	{
-		context->UpdateSubresource(buffer[i], 0, NULL, data, 0, 0);
-	}
-
-	void UpdateFrame()
-	{
-		context->UpdateSubresource(buffer[4], 0, NULL, &frame, 0, 0);
-	}
-
-	void UpdateDrawerMat()
-	{
-		context->UpdateSubresource(ConstBuf::buffer[2], 0, NULL, &drawerMat, 0, 0);
-	}
-
-	void UpdateCamera()
-	{
-		context->UpdateSubresource(ConstBuf::buffer[3], 0, NULL, &camera, 0, 0);
-	}
-
-	void ConstToVertex(int i)
-	{
-		context->VSSetConstantBuffers(i, 1, &buffer[i]);
-	}
-
-	void ConstToPixel(int i)
-	{
-		context->PSSetConstantBuffers(i, 1, &buffer[i]);
-	}
-
-
-	namespace getbyname {
-		enum { drawerV, drawerP, drawerMat, camera, frame, global };
-	}
-
-}
-
-
-
-namespace Blend
-{
-
-	enum class blendmode { off, on, alpha };
-	enum class blendop { add, sub, revsub, min, max };
-
-	ID3D11BlendState* blendState[3][5];
-	D3D11_BLEND_DESC bSDesc;
-
-	void CreateMixStates(int j)
-	{
-		for (int i = 0; i < 5; i++)
+		D3D11_INPUT_ELEMENT_DESC layout[] =
 		{
-			bSDesc.RenderTarget[0].BlendOp = (D3D11_BLEND_OP)(i + 1);
-			HRESULT hr = device->CreateBlendState(&bSDesc, &blendState[j][i]);
-		}
+
+			{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+
+			/* семантическое имя, семантический индекс, размер, входящий слот (0-15), адрес начала данных в буфере вершин, класс входящего слота (не важно), InstanceDataStepRate (не важно) */
+
+		};
+		UINT numElements = ARRAYSIZE(layout);
+
+		hr = device->CreateInputLayout(layout, numElements, Shaders::VS[0].pBlob->GetBufferPointer(), Shaders::VS[0].pBlob->GetBufferSize(), &Shaders::VS[0].pLayout);
+		// Подключение шаблона вершин
+		context->IASetInputLayout(Shaders::VS[0].pLayout);
+
+
+	}
+
+	void BufferToVertex()
+	{
+		UINT stride = sizeof(SimpleVertex);
+		UINT offset = 0;
+		context->IASetVertexBuffers(0, 1, &buffer, &stride, &offset);
 	}
 
 	void Init()
 	{
-		ZeroMemory(&bSDesc, sizeof(D3D11_BLEND_DESC));
-
-		//all additional rt's without alphablend!
-		for (int x = 0; x < 8; x++)
-		{
-			bSDesc.RenderTarget[x].BlendEnable = false;
-			bSDesc.RenderTarget[x].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
-		}
-
-		bSDesc.AlphaToCoverageEnable = false;
-		bSDesc.IndependentBlendEnable = true;
-
-		CreateMixStates(0);
-
-		bSDesc.RenderTarget[0].BlendEnable = TRUE;
-		bSDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
-		bSDesc.RenderTarget[0].DestBlend = D3D11_BLEND_ONE;
-		bSDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
-		bSDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
-		bSDesc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
-
-		//NO ALPHA
-		CreateMixStates(1);
-
-		//ALPHA 
-		bSDesc.RenderTarget[0].BlendEnable = TRUE;
-		bSDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
-		bSDesc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
-		CreateMixStates(2);
-
-		float blendFactor[4] = { .0f,.0f,.0f,.0f };
-		context->OMSetBlendState(blendState[0][0], blendFactor, 0xffffffff);
-	}
-
-	void Blending(blendmode mode = blendmode::off, blendop operation = blendop::add)
-	{
-		float blendFactor[4] = { .0f,.0f,.0f,.0f };
-		context->OMSetBlendState(blendState[(int)mode][(int)operation], blendFactor, 0xffffffff);
+		Create(buffer);
 	}
 }
 
-namespace Depth
-{
-	enum class depthmode { off, on, readonly, writeonly };
-
-	ID3D11DepthStencilState* pDSState[4];
-
-	void Init()
-	{
-		D3D11_DEPTH_STENCIL_DESC dsDesc;
-		// Depth test parameters
-		dsDesc.DepthEnable = false;
-		dsDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
-		dsDesc.DepthFunc = D3D11_COMPARISON_LESS;
-
-		// Stencil test parameters
-		dsDesc.StencilEnable = true;
-		dsDesc.StencilReadMask = 0xFF;
-		dsDesc.StencilWriteMask = 0xFF;
-
-		// Stencil operations if pixel is front-facing
-		dsDesc.FrontFace.StencilFailOp = D3D11_STENCIL_OP_KEEP;
-		dsDesc.FrontFace.StencilDepthFailOp = D3D11_STENCIL_OP_INCR;
-		dsDesc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
-		dsDesc.FrontFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
-
-		// Stencil operations if pixel is back-facing 
-		dsDesc.BackFace.StencilFailOp = D3D11_STENCIL_OP_KEEP;
-		dsDesc.BackFace.StencilDepthFailOp = D3D11_STENCIL_OP_DECR;
-		dsDesc.BackFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
-		dsDesc.BackFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
-
-		// Create depth stencil state
-		dsDesc.StencilEnable = false;
-
-		dsDesc.DepthEnable = false;
-		device->CreateDepthStencilState(&dsDesc, &pDSState[0]);//off
-
-		dsDesc.DepthEnable = true;
-		dsDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
-		device->CreateDepthStencilState(&dsDesc, &pDSState[1]);//read & write
-
-		dsDesc.DepthEnable = true;
-		dsDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
-		device->CreateDepthStencilState(&dsDesc, &pDSState[2]);//read
-
-		dsDesc.DepthEnable = false;
-		dsDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
-		device->CreateDepthStencilState(&dsDesc, &pDSState[3]);//write
-	}
-
-	void Depth(depthmode mode)
-	{
-		context->OMSetDepthStencilState(pDSState[(int)mode], 1);
-	}
-
-
-}
-
-
-
-
-
-namespace Device
-{
-
-#define DirectXDebugMode false
-
-	D3D_DRIVER_TYPE	driverType = D3D_DRIVER_TYPE_NULL;
-
-	void Init()
-	{
-		HRESULT hr;
-
-		aspect = float(height) / float(width);
-		iaspect = float(width) / float(height);
-
-		DXGI_SWAP_CHAIN_DESC sd;
-		ZeroMemory(&sd, sizeof(sd));
-		sd.BufferCount = 2;
-		sd.BufferDesc.Width = width;
-		sd.BufferDesc.Height = height;
-		sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		sd.BufferDesc.RefreshRate.Numerator = FRAMES_PER_SECOND;
-		sd.BufferDesc.RefreshRate.Denominator = 1;
-		sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-		sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-		sd.OutputWindow = hWnd;
-		sd.SampleDesc.Count = 1;
-		sd.SampleDesc.Quality = 0;
-		sd.Windowed = true;
-
-		hr = D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, DirectXDebugMode ? D3D11_CREATE_DEVICE_DEBUG : 0, 0, 0, D3D11_SDK_VERSION, &sd, &swapChain, &device, NULL, &context);
-
-		Textures::Texture[0].pTexture = NULL;
-		hr = swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&Textures::Texture[0].pTexture);
-
-		hr = device->CreateRenderTargetView(Textures::Texture[0].pTexture, NULL, &Textures::Texture[0].RenderTargetView[0][0]);
-
-		Textures::Texture[0].pTexture->Release();
-	}
-
-}
-
-namespace InputAssembler
-{
-
-	enum class topology { triList, lineList, lineStrip };
-
-	void IA(topology topoType)
-	{
-		D3D11_PRIMITIVE_TOPOLOGY ttype = D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-		switch (topoType)
-		{
-		case topology::triList:
-			ttype = D3D_PRIMITIVE_TOPOLOGY::D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-			break;
-		case topology::lineList:
-			ttype = D3D_PRIMITIVE_TOPOLOGY::D3D10_PRIMITIVE_TOPOLOGY_LINELIST;
-			break;
-		case topology::lineStrip:
-			ttype = D3D_PRIMITIVE_TOPOLOGY::D3D10_PRIMITIVE_TOPOLOGY_LINESTRIP;
-		}
-
-		context->IASetPrimitiveTopology(ttype);
-		context->IASetInputLayout(NULL);
-		context->IASetVertexBuffers(0, 0, NULL, NULL, NULL);
-	}
-
-}
 
 void Dx11Init()
 {
@@ -847,13 +551,8 @@ void Dx11Init()
 	iaspect = float(width) / float(height);
 
 	Device::Init();
-	Rasterizer::Init();
-	Depth::Init();
-	Blend::Init();
-	ConstBuf::Init();
-	Sampler::Init();
 	Shaders::Init();
-
+	Buffers::Init();
 	//main RT
 	Textures::Create(0, Textures::tType::flat, Textures::tFormat::u8, XMFLOAT2(width, height), false, true);
 }
@@ -866,50 +565,6 @@ struct color4 {
 	float a;
 };
 
-namespace Bresenham
-{
-	struct Point {
-		int x, y;
-	};
-
-	void DrawLine(HDC hdc)
-	{
-		Point start;
-		Point end;
-		start.x = 50;
-		start.y = 100;
-		end.x = 1000;
-		end.y = 100;
-		int dx = abs(end.x - start.x);
-		int dy = abs(end.y - start.y);
-		int sx = (start.x < end.x) ? 1 : -1;
-		int sy = (start.y < end.y) ? 1 : -1;
-		int err = dx - dy;
-
-		Point current = start;
-
-		while (true) {
-			// Установка пикселя (здесь нужно реализовать отрисовку)
-			SetPixel(hdc, current.x, current.y, RGB(255, 0, 0));
-
-			if (current.x == end.x && current.y == end.y)
-				break;
-
-			int err2 = err * 2;
-
-			if (err2 > -dy) {
-				err -= dy;
-				current.x += sx;
-			}
-
-			if (err2 < dx) {
-				err += dx;
-				current.y += sy;
-			}
-		}
-	}
-}
-
 namespace Draw
 {
 
@@ -918,20 +573,14 @@ namespace Draw
 		context->ClearRenderTargetView(Textures::Texture[Textures::currentRT].RenderTargetView[0][0], XMVECTORF32{ color.r,color.g,color.b,color.a });
 	}
 
-	void ClearDepth()
+	void Drawer()
 	{
-		context->ClearDepthStencilView(Textures::Texture[Textures::currentRT].DepthStencilView[0], D3D11_CLEAR_DEPTH, 1.0f, 0);
-	}
+		//ConstBuf::Update(0, ConstBuf::drawerV); // Обновляем константный буфер drawerV
+		Buffers::BufferToVertex();				// Отправляем константный буфер 0 в вершинный шейдер
+		//ConstBuf::Update(1, ConstBuf::drawerP); // Обновляем константный буфер drawerP
+		//ConstBuf::ConstToPixel(1);				// Отправляем константный буфер 1 в пиксельный шейдер
 
-	void NullDrawer(int quadCount, unsigned int instances = 1)
-	{
-		ConstBuf::Update(0, ConstBuf::drawerV);
-		ConstBuf::ConstToVertex(0);
-		ConstBuf::Update(1, ConstBuf::drawerP);
-		ConstBuf::ConstToPixel(1);
-
-		context->DrawInstanced(quadCount * 6, instances, 0, 0);
-		//context->DrawAuto();
+		context->Draw(3, 0); // Вызываем отрисовку
 	}
 
 	void Present()
@@ -942,12 +591,7 @@ namespace Draw
 
 }
 
-void frameConst()
-{
-	ConstBuf::frame.time = XMFLOAT4{ (float)(timer::frameBeginTime * .01) ,0,0,0 };
-	ConstBuf::frame.aspect = XMFLOAT4{ aspect,iaspect, 0, 0 };
-	ConstBuf::UpdateFrame();
-}
+
 
 #define PI 3.1415926535897932384626433832795f
 float DegreesToRadians(float degrees)
@@ -955,47 +599,14 @@ float DegreesToRadians(float degrees)
 	return degrees * PI / 180.f;
 }
 
-namespace Camera
-{
-
-	void Camera()
-	{
-		float t = timer::frameBeginTime * .001;
-		float angle = 100;
-		float a = 3.5;
-		XMVECTOR Eye = XMVectorSet(sin(t) * a, 0, cos(t) * a, 0.0f);
-		XMVECTOR At = XMVectorSet(0, 0, 0, 0.0f);
-		XMVECTOR Up = XMVectorSet(0, 1, 0, 0.0f);
-
-		ConstBuf::camera.world[0] = XMMatrixIdentity();
-		ConstBuf::camera.view[0] = XMMatrixTranspose(XMMatrixLookAtLH(Eye, At, Up));
-		ConstBuf::camera.proj[0] = XMMatrixTranspose(XMMatrixPerspectiveFovLH(DegreesToRadians(angle), iaspect, 0.01f, 100.0f));
-
-		ConstBuf::UpdateCamera();
-		ConstBuf::ConstToVertex(3);
-		ConstBuf::ConstToPixel(3);
-	}
-}
 
 void mainLoop()
 {
-	frameConst();
-
-	InputAssembler::IA(InputAssembler::topology::lineList);
-	Blend::Blending(Blend::blendmode::alpha, Blend::blendop::add);
-
-	Textures::RenderTarget(0, 0);
-	Draw::Clear({ 0,0.5,1,0 });
-	Draw::ClearDepth();
-	Depth::Depth(Depth::depthmode::on);
-	Rasterizer::Cull(Rasterizer::cullmode::off);
+	InputAssembler::IA(InputAssembler::topology::triList);
+	Draw::Clear({ 0,0,1,1 });
 	Shaders::vShader(0);
 	Shaders::pShader(0);
-	ConstBuf::ConstToVertex(4);
-	ConstBuf::ConstToPixel(4);
-
-	Camera::Camera();
-
-	Draw::NullDrawer(1, 1);
+	//context->PSSetShaderResources(0, 1, &Textures::Texture[1].TextureResView);
+	Draw::Drawer();
 	Draw::Present();
 }
