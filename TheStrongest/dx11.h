@@ -27,6 +27,9 @@ ID3D11RenderTargetView* renderTargetView = NULL;
 ID3D11Buffer* vertexBuffer = NULL;
 ID3D11VertexShader* vertexShader = NULL;
 ID3D11PixelShader* pixelShader = NULL;
+ID3D11DepthStencilView* depthStencilView = NULL;
+ID3D11Texture2D* depthStencilBuffer = NULL;
+
 
 namespace timer
 {
@@ -129,8 +132,32 @@ namespace Device
 		hr = device->CreateRenderTargetView(backBuffer, nullptr, &renderTargetView);
 		backBuffer->Release();
 
+		D3D11_TEXTURE2D_DESC depthBufferDesc;
+		ZeroMemory(&depthBufferDesc, sizeof(depthBufferDesc));
+		depthBufferDesc.Width = width;
+		depthBufferDesc.Height = height;
+		depthBufferDesc.MipLevels = 1;
+		depthBufferDesc.ArraySize = 1;
+		depthBufferDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+		depthBufferDesc.SampleDesc.Count = 1;
+		depthBufferDesc.SampleDesc.Quality = 0;
+		depthBufferDesc.Usage = D3D11_USAGE_DEFAULT;
+		depthBufferDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+		depthBufferDesc.CPUAccessFlags = 0;
+		depthBufferDesc.MiscFlags = 0;
+
+		device->CreateTexture2D(&depthBufferDesc, NULL, &depthStencilBuffer);
+
+		D3D11_DEPTH_STENCIL_VIEW_DESC depthStencilViewDesc;
+		ZeroMemory(&depthStencilViewDesc, sizeof(depthStencilViewDesc));
+		depthStencilViewDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+		depthStencilViewDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+		depthStencilViewDesc.Texture2D.MipSlice = 0;
+
+		device->CreateDepthStencilView(depthStencilBuffer, &depthStencilViewDesc, &depthStencilView);
+
 		// Устанавливаем Render Target
-		context->OMSetRenderTargets(1, &renderTargetView, nullptr);
+		context->OMSetRenderTargets(1, &renderTargetView, depthStencilView);
 
 		D3D11_VIEWPORT vp;
 		vp.Width = (FLOAT)width;
@@ -141,6 +168,24 @@ namespace Device
 		vp.TopLeftY = 0;
 
 		context->RSSetViewports(1, &vp);
+
+		ID3D11RasterizerState* rasterizerState = NULL;
+
+		D3D11_RASTERIZER_DESC rasterizerDesc;
+		ZeroMemory(&rasterizerDesc, sizeof(rasterizerDesc));
+		rasterizerDesc.FillMode = D3D11_FILL_SOLID;
+		rasterizerDesc.CullMode = D3D11_CULL_NONE;  // Важно: отключаем отсечение
+		rasterizerDesc.FrontCounterClockwise = FALSE;
+		rasterizerDesc.DepthBias = 0;
+		rasterizerDesc.DepthBiasClamp = 0.0f;
+		rasterizerDesc.SlopeScaledDepthBias = 0.0f;
+		rasterizerDesc.DepthClipEnable = TRUE;
+		rasterizerDesc.ScissorEnable = FALSE;
+		rasterizerDesc.MultisampleEnable = FALSE;
+		rasterizerDesc.AntialiasedLineEnable = FALSE;
+
+		device->CreateRasterizerState(&rasterizerDesc, &rasterizerState);
+		context->RSSetState(rasterizerState);
 	}
 
 }
@@ -251,7 +296,7 @@ namespace Shaders {
 				numElements,
 				VS[i].pBlob->GetBufferPointer(),
 				VS[i].pBlob->GetBufferSize(),
-				&VS[i].pLayout  // Сохраняем в правильное место!
+				&VS[i].pLayout 
 			);
 			context->IASetInputLayout(Shaders::VS[0].pLayout);
 
@@ -369,6 +414,8 @@ namespace Draw
 
 		if (currentRTV)
 			context->ClearRenderTargetView(currentRTV, XMVECTORF32{ color.r,color.g,color.b,color.a });
+		context->ClearDepthStencilView(depthStencilView,
+			D3D11_CLEAR_DEPTH, 1.0f, 0);  // Очистка буфера глубины
 
 	}
 
@@ -396,11 +443,12 @@ void mainLoop()
 	// 2. Очищаем буфер
 	Draw::Clear({ 0,1,1,1});
 
-	// 3. Устанавливаем шейдеры
+	// 3. Установка rendertarget
+	context->OMSetRenderTargets(1, &renderTargetView, depthStencilView);
+
+	// 4. Устанавливаем шейдеры
 	Shaders::vShader(0);
 	Shaders::pShader(0);
-
-	// 4. Устанавливаем input layout
 
 	// 5. Рисуем
 	Draw::Drawer();

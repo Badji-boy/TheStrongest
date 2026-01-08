@@ -1,19 +1,20 @@
 struct VS_INPUT
 {
-    float3 pos : POSITION;
-    float4 color : COLOR;
+    float3 Pos : POSITION;
+    float4 Color : COLOR;
 };
 
-struct VS_OUTPUT
+struct PS_INPUT
 {
-    float4 pos : SV_POSITION;
-    float4 color : COLOR;
+    float4 Pos : SV_POSITION;
+    float4 Color : COLOR;
 };
 
-VS_OUTPUT VS(VS_INPUT input)
+PS_INPUT VS(VS_INPUT input)
 {
-    VS_OUTPUT output;
-    output.pos = float4(input.pos, 1.0f);
-    output.color = input.color;
+    PS_INPUT output;
+    input.Pos.x *= 0.5;
+    output.Pos = float4(input.Pos, 1.0f);
+    output.Color = input.Color;
     return output;
-};
+}
