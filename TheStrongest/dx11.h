@@ -27,7 +27,6 @@ ID3D11RenderTargetView* renderTargetView = NULL;
 ID3D11Buffer* vertexBuffer = NULL;
 ID3D11VertexShader* vertexShader = NULL;
 ID3D11PixelShader* pixelShader = NULL;
-ID3D11InputLayout* inputLayout = NULL;
 
 namespace timer
 {
@@ -125,7 +124,7 @@ namespace Device
 		);
 
 		ID3D11Texture2D* backBuffer = NULL;
-		hr = swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&backBuffer);
+		hr = swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&backBuffer);
 
 		hr = device->CreateRenderTargetView(backBuffer, nullptr, &renderTargetView);
 		backBuffer->Release();
@@ -228,35 +227,43 @@ namespace Shaders {
 	{
 		HRESULT hr;
 
-		hr = D3DCompileFromFile(name, NULL, D3D_COMPILE_STANDARD_FILE_INCLUDE, "VS", "vs_4_1", NULL, NULL, &VS[i].pBlob, &pErrorBlob);
+		hr = D3DCompileFromFile(name, NULL, NULL,
+			"VS", "vs_5_0", NULL, NULL, &VS[i].pBlob, &pErrorBlob);
 		CompilerLog(name, hr, "vertex shader compiled: ");
 
 		if (hr == S_OK)
 		{
-			hr = device->CreateVertexShader(VS[i].pBlob->GetBufferPointer(), VS[i].pBlob->GetBufferSize(), NULL, &VS[i].vShader);
+			hr = device->CreateVertexShader(VS[i].pBlob->GetBufferPointer(),
+				VS[i].pBlob->GetBufferSize(),
+				NULL,
+				&VS[i].vShader);
+
+			D3D11_INPUT_ELEMENT_DESC layout[] = {
+				{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,
+				  D3D11_INPUT_PER_VERTEX_DATA, 0 },
+				{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12,
+				  D3D11_INPUT_PER_VERTEX_DATA, 0 }
+			};
+			UINT numElements = ARRAYSIZE(layout);
+
+			hr = device->CreateInputLayout(
+				layout,
+				numElements,
+				VS[i].pBlob->GetBufferPointer(),
+				VS[i].pBlob->GetBufferSize(),
+				&VS[i].pLayout  // Сохраняем в правильное место!
+			);
+			context->IASetInputLayout(Shaders::VS[0].pLayout);
+
 		}
-
-		D3D11_INPUT_ELEMENT_DESC layout[] = {
-		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-		{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 }
-		};
-		UINT numElements = ARRAYSIZE(layout);
-
-		hr = device->CreateInputLayout(
-			layout,
-			numElements,
-			VS[i].pBlob->GetBufferPointer(),
-			VS[i].pBlob->GetBufferSize(),
-			&inputLayout
-		);
-
 	}
 
 	void CreatePS(int i, LPCWSTR name)
 	{
 		HRESULT hr;
 
-		hr = D3DCompileFromFile(name, NULL, D3D_COMPILE_STANDARD_FILE_INCLUDE, "PS", "ps_4_1", NULL, NULL, &PS[i].pBlob, &pErrorBlob);
+		hr = D3DCompileFromFile(name, NULL, NULL,
+			"PS", "ps_5_0", NULL, NULL, &PS[i].pBlob, &pErrorBlob);
 		CompilerLog(name, hr, "pixel shader compiled: ");
 
 		if (hr == S_OK)
@@ -268,8 +275,8 @@ namespace Shaders {
 
 	void Init()
 	{
-		CreateVS(0, nameToPatchLPCWSTR("..\\TheStrongest\\VS.h"));
-		CreatePS(0, nameToPatchLPCWSTR("..\\TheStrongest\\PS.h"));
+		CreateVS(0, nameToPatchLPCWSTR("..\\TheStrongest\\VS.hlsl"));
+		CreatePS(0, nameToPatchLPCWSTR("..\\TheStrongest\\PS.hlsl"));
 
 	}
 
@@ -387,14 +394,13 @@ void mainLoop()
 	InputAssembler::IA(InputAssembler::topology::triList);
 
 	// 2. Очищаем буфер
-	Draw::Clear({ 0,0,1,1 });
+	Draw::Clear({ 0,1,1,1});
 
 	// 3. Устанавливаем шейдеры
 	Shaders::vShader(0);
 	Shaders::pShader(0);
 
 	// 4. Устанавливаем input layout
-	context->IASetInputLayout(Shaders::VS[0].pLayout);
 
 	// 5. Рисуем
 	Draw::Drawer();

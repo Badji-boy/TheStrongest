@@ -169,14 +169,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         HDC hdc = BeginPaint(hWnd, &ps);
         // TODO: Add any drawing code that uses hdc here...
         // Очистка экрана белым цветом
-        RECT rect;
+        /*RECT rect;
         GetClientRect(hWnd, &rect);
         HBRUSH whiteBrush = CreateSolidBrush(RGB(255, 255, 255));
         FillRect(hdc, &rect, whiteBrush);
-        DeleteObject(whiteBrush);
+        DeleteObject(whiteBrush);*/
         EndPaint(hWnd, &ps);
     }
     break;
+    
     case WM_DESTROY:
         PostQuitMessage(0);
         break;
