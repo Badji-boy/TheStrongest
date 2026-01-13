@@ -439,7 +439,7 @@ namespace Matrixes
 		// Инициализация матрицы мира
 		g_World = XMMatrixIdentity();
 		// Инициализация матрицы вида
-		XMVECTOR Eye = XMVectorSet(0.0f, 5.0f, -5.0f, 0.0f);  // Откуда смотрим
+		XMVECTOR Eye = XMVectorSet(0.0f, 2.0f, -8.0f, 0.0f);  // Откуда смотрим
 		XMVECTOR At = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);    // Куда смотрим
 		XMVECTOR Up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);    // Направление верха
 		g_View = XMMatrixLookAtLH(Eye, At, Up);
@@ -447,7 +447,7 @@ namespace Matrixes
 		g_Projection = XMMatrixPerspectiveFovLH(XM_PIDIV4, width / (FLOAT)height, 0.01f, 100.0f);
 	}
 
-	void Set()
+	void Set(float fAngle)
 	{
 		// Обновление переменной-времени
 		static float t = 0.0f;
@@ -463,9 +463,26 @@ namespace Matrixes
 				dwTimeStart = dwTimeCur;
 			t = (dwTimeCur - dwTimeStart) / 1000.0f;
 		}
+		// Матрица-орбита: позиция объекта
+		XMMATRIX mOrbit = XMMatrixRotationY(-t + fAngle);
+		// Матрица-спин: вращение объекта вокруг своей оси
+		XMMATRIX mSpin = XMMatrixRotationY(t * 2);
+		// Матрица-позиция: перемещение на три единицы влево от начала координат
+		XMMATRIX mTranslate = XMMatrixTranslation(-3.0f, 0.0f, 0.0f);
+		// Матрица-масштаб: сжатие объекта в 2 раза
+		XMMATRIX mScale = XMMatrixScaling(0.5f, 0.5f, 0.5f);
 
-		// Вращать мир по оси Y на угол t (в радианах)
-		g_World = XMMatrixRotationY(t);
+
+
+		// Результирующая матрица
+
+		//  --Сначала мы в центре, в масштабе 1:1:1, повернуты по всем осям на 0.0f.
+
+		//  --Сжимаем -> поворачиваем вокруг Y (пока мы еще в центре) -> переносим влево ->
+
+		//  --снова поворачиваем вокруг Y.
+
+		g_World = mScale * mSpin * mTranslate * mOrbit;
 
 		// Обновить константный буфер
 		// создаем временную структуру и загружаем в нее матрицы
@@ -529,7 +546,7 @@ namespace Draw
 
 void mainLoop()
 {
-	Matrixes::Set();
+	
 	// 1. Устанавливаем топологию
 	InputAssembler::IA(InputAssembler::topology::triList);
 
@@ -538,14 +555,18 @@ void mainLoop()
 
 	// 3. Установка rendertarget
 	context->OMSetRenderTargets(1, &renderTargetView, depthStencilView);
+	for (int i = 0; i < 6; i++)
+	{
+		Matrixes::Set(i * (XM_PI * 2) / 6);
+		// 4. Устанавливаем шейдеры
+		Shaders::vShader(0);
+		context->VSSetConstantBuffers(0, 1, &constantBuffer);
+		Shaders::pShader(0);
 
-	// 4. Устанавливаем шейдеры
-	Shaders::vShader(0);
-	context->VSSetConstantBuffers(0, 1, &constantBuffer);
-	Shaders::pShader(0);
-
-	// 5. Рисуем
-	Draw::Drawer();
+		// 5. Рисуем
+		Draw::Drawer();
+	}
+	
 
 	// 6. Показываем результат
 	Draw::Present();
