@@ -4,14 +4,20 @@
 #pragma comment(lib, "dxguid.lib")
 #pragma comment(lib, "winmm.lib")
 #pragma comment(lib, "xaudio2.lib")
+#pragma comment(lib, "d3dx11.lib")
 
 #include <d3d11.h>
 #include <d3dcompiler.h>
 #include "DirectXMath.h"
 #include <DirectXPackedVector.h>
 #include <debugapi.h>
+#include <wincodec.h>
+#include <wrl/client.h>
+#include <string>
+#include <iostream>
+#include "vector"
 
-
+using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 
 #define FRAMES_PER_SECOND 60
@@ -31,13 +37,18 @@ ID3D11PixelShader* pixelShaderSolid = NULL;
 ID3D11DepthStencilView* depthStencilView = NULL;
 ID3D11Texture2D* depthStencilBuffer = NULL;
 ID3D11Buffer* indexBuffer = NULL;        // Буфер индексов вершин
-ID3D11Buffer* constantBuffer = NULL;           // Константный буфер
+ID3D11Buffer* CBMatrixes = NULL;       // Константный буфер с информацией о матрицах
+ID3D11Buffer* CBLight = NULL;          // Константный буфер с информацией о свете
 XMMATRIX                g_World;                      // Матрица мира
 XMMATRIX                g_View;                       // Матрица вида
 XMMATRIX                g_Projection;                 // Матрица проекции
 FLOAT                 t = 0.0f;                // Переменная-время
 XMFLOAT4              vLightDirs[2];           // Направление света (позиция источников)
 XMFLOAT4              vLightColors[2];         // Цвет источников
+
+
+ID3D11ShaderResourceView* TextureRV = NULL;        // Объект текстуры
+ID3D11SamplerState* SamplerLinear = NULL;    // Параметры наложения текстуры
 
 
 namespace timer
@@ -293,7 +304,8 @@ namespace Shaders {
 
 			D3D11_INPUT_ELEMENT_DESC layout[] = {
 				{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-				{  "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 }
+				{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+				{  "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 20, D3D11_INPUT_PER_VERTEX_DATA, 0 }
 			};
 			UINT numElements = ARRAYSIZE(layout);
 
@@ -348,52 +360,56 @@ namespace Buffers
 	struct SimpleVertex
 	{
 		XMFLOAT3 Pos;
+		XMFLOAT2 Tex;     // Координаты текстуры
 		XMFLOAT3 Normal; // Нормаль вершины
 	};
 
-	struct ConstantBuffer
+	struct ConstantBufferMatrixes
 	{
-		XMMATRIX mWorld;       // Матрица мира
-		XMMATRIX mView;        // Матрица вида
-		XMMATRIX mProjection;  // Матрица проекции
+		XMMATRIX mWorld;              // Матрица мира
+		XMMATRIX mView;               // Матрица вида
+		XMMATRIX mProjection;         // Матрица проекции
+	};
+
+	struct ConstantBufferLight
+	{
 		XMFLOAT4 vLightDir[2]; // Направление света
 		XMFLOAT4 vLightColor[2];      // Цвет источника
 		XMFLOAT4 vOutputColor; // Активный цвет (для второго PSSolid)
 	};
 
-	// Создание буфера вершин (по 4 точки на каждую сторону куба, всего 24 вершины)
+	// Создание буфера вершин(по 4 точки на каждую сторону куба, всего 24 вершины)
+		SimpleVertex vertices[] =
+	{    /* координаты X, Y, Z            координаты текстры tu, tv   нормаль X, Y, Z        */
+		{ XMFLOAT3(-1.0f, 1.0f, -1.0f),      XMFLOAT2(0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f)},
+		{ XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT2(1.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f)},
+		{ XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f)},
+		{ XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f)},
 
-	SimpleVertex vertices[] =
-	{  /* координаты X, Y, Z                          нормаль X, Y, Z     */
-		{ XMFLOAT3(-1.0f, 1.0f, -1.0f),      XMFLOAT3(0.0f, 1.0f, 0.0f) },
-		{ XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
-		{ XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
-		{ XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
+		{ XMFLOAT3(-1.0f, -1.0f, -1.0f),     XMFLOAT2(0.0f, 0.0f), XMFLOAT3(0.0f, -1.0f, 0.0f)},
+		{ XMFLOAT3(1.0f, -1.0f, -1.0f),      XMFLOAT2(1.0f, 0.0f), XMFLOAT3(0.0f, -1.0f, 0.0f)},
+		{ XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f)},
+		{ XMFLOAT3(-1.0f, -1.0f, 1.0f),      XMFLOAT2(0.0f, 1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f)},
 
-		{ XMFLOAT3(-1.0f, -1.0f, -1.0f),     XMFLOAT3(0.0f, -1.0f, 0.0f) },
-		{ XMFLOAT3(1.0f, -1.0f, -1.0f),      XMFLOAT3(0.0f, -1.0f, 0.0f) },
-		{ XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },
-		{ XMFLOAT3(-1.0f, -1.0f, 1.0f),      XMFLOAT3(0.0f, -1.0f, 0.0f) },
+		{ XMFLOAT3(-1.0f, -1.0f, 1.0f),      XMFLOAT2(0.0f, 0.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f)},
+		{ XMFLOAT3(-1.0f, -1.0f, -1.0f),     XMFLOAT2(1.0f, 0.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f)},
+		{ XMFLOAT3(-1.0f, 1.0f, -1.0f),      XMFLOAT2(1.0f, 1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f)},
+		{ XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f)},
 
-		{ XMFLOAT3(-1.0f, -1.0f, 1.0f),      XMFLOAT3(-1.0f, 0.0f, 0.0f) },
-		{ XMFLOAT3(-1.0f, -1.0f, -1.0f),     XMFLOAT3(-1.0f, 0.0f, 0.0f) },
-		{ XMFLOAT3(-1.0f, 1.0f, -1.0f),      XMFLOAT3(-1.0f, 0.0f, 0.0f) },
-		{ XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },
+		{ XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT2(0.0f, 0.0f), XMFLOAT3(1.0f, 0.0f, 0.0f)},
+		{ XMFLOAT3(1.0f, -1.0f, -1.0f),      XMFLOAT2(1.0f, 0.0f), XMFLOAT3(1.0f, 0.0f, 0.0f)},
+		{ XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT2(1.0f, 1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f)},
+		{ XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f)},
 
-		{ XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },
-		{ XMFLOAT3(1.0f, -1.0f, -1.0f),      XMFLOAT3(1.0f, 0.0f, 0.0f) },
-		{ XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },
-		{ XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },
+		{ XMFLOAT3(-1.0f, -1.0f, -1.0f),     XMFLOAT2(0.0f, 0.0f), XMFLOAT3(0.0f, 0.0f, -1.0f)},
+		{ XMFLOAT3(1.0f, -1.0f, -1.0f),      XMFLOAT2(1.0f, 0.0f), XMFLOAT3(0.0f, 0.0f, -1.0f)},
+		{ XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT2(1.0f, 1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f)},
+		{ XMFLOAT3(-1.0f, 1.0f, -1.0f),      XMFLOAT2(0.0f, 1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f)},
 
-		{ XMFLOAT3(-1.0f, -1.0f, -1.0f),     XMFLOAT3(0.0f, 0.0f, -1.0f) },
-		{ XMFLOAT3(1.0f, -1.0f, -1.0f),      XMFLOAT3(0.0f, 0.0f, -1.0f) },
-		{ XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },
-		{ XMFLOAT3(-1.0f, 1.0f, -1.0f),      XMFLOAT3(0.0f, 0.0f, -1.0f) },
-
-		{ XMFLOAT3(-1.0f, -1.0f, 1.0f),      XMFLOAT3(0.0f, 0.0f, 1.0f) },
-		{ XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },
-		{ XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },
-		{ XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },
+		{ XMFLOAT3(-1.0f, -1.0f, 1.0f),      XMFLOAT2(0.0f, 0.0f), XMFLOAT3(0.0f, 0.0f, 1.0f)},
+		{ XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT2(1.0f, 0.0f), XMFLOAT3(0.0f, 0.0f, 1.0f)},
+		{ XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f)},
+		{ XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f)},
 	};
 
 	WORD indices[] =
@@ -417,7 +433,7 @@ namespace Buffers
 		23,20,22
 	};
 
-	void Create()
+	void Create(const wchar_t* filename)
 	{
 		D3D11_BUFFER_DESC bd;
 		ZeroMemory(&bd, sizeof(bd));
@@ -448,14 +464,69 @@ namespace Buffers
 		//создаем константный буфер
 		ZeroMemory(&bd, sizeof(bd));
 		bd.Usage = D3D11_USAGE_DEFAULT;
-		bd.ByteWidth = sizeof(ConstantBuffer);
+		bd.ByteWidth = sizeof(CBMatrixes);
 		bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
 		bd.CPUAccessFlags = 0;
 		bd.MiscFlags = 0;
 
-	    hr = device->CreateBuffer(&bd, nullptr, &constantBuffer);
+	    hr = device->CreateBuffer(&bd, nullptr, &CBMatrixes);
 
-		
+		ZeroMemory(&bd, sizeof(bd));
+		bd.Usage = D3D11_USAGE_DEFAULT;
+		bd.ByteWidth = sizeof(CBLight);
+		bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+		bd.CPUAccessFlags = 0;
+		bd.MiscFlags = 0;
+
+		hr = device->CreateBuffer(&bd, nullptr, &CBLight);
+
+		ComPtr<IWICImagingFactory> wicFactory;
+		ComPtr<IWICBitmapDecoder> decoder;
+		ComPtr<IWICBitmapFrameDecode> frame;
+		ComPtr<IWICFormatConverter> converter;
+
+		// Создаем фабрику WIC
+		CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+			IID_PPV_ARGS(&wicFactory));
+
+		// Загружаем изображение
+		wicFactory->CreateDecoderFromFilename(filename, nullptr, GENERIC_READ,
+			WICDecodeMetadataCacheOnLoad, &decoder);
+		decoder->GetFrame(0, &frame);
+
+		// Конвертируем в нужный формат
+		wicFactory->CreateFormatConverter(&converter);
+		converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppRGBA,
+			WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom);
+
+		// Получаем информацию об изображении
+		UINT width, height;
+		converter->GetSize(&width, &height);
+
+		std::vector<BYTE> pixels(width * height * 4);
+		converter->CopyPixels(nullptr, width * 4, static_cast<UINT>(pixels.size()), pixels.data());
+
+		// Создаем текстуру
+		D3D11_TEXTURE2D_DESC desc = {};
+		desc.Width = width;
+		desc.Height = height;
+		desc.MipLevels = 1;
+		desc.ArraySize = 1;
+		desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		desc.SampleDesc.Count = 1;
+		desc.Usage = D3D11_USAGE_DEFAULT;
+		desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+		D3D11_SUBRESOURCE_DATA initData = {};
+		initData.pSysMem = pixels.data();
+		initData.SysMemPitch = width * 4;
+
+		ComPtr<ID3D11Texture2D> texture;
+		device->CreateTexture2D(&desc, &initData, &texture);
+
+		// Создаем Shader Resource View
+		ComPtr<ID3D11ShaderResourceView> srv;
+		device->CreateShaderResourceView(texture.Get(), nullptr, &srv);
 	}
 
 	void BufferToVertex()
