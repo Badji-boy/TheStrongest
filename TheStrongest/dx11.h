@@ -16,7 +16,7 @@ using namespace DirectX;
 
 #define FRAMES_PER_SECOND 60
 #define FRAME_LEN (1000. / (float) FRAMES_PER_SECOND)
-
+#define MX_SETWORLD 0x101
 
 
 ID3D11Device* device = NULL;
@@ -27,6 +27,7 @@ ID3D11RenderTargetView* renderTargetView = NULL;
 ID3D11Buffer* vertexBuffer = NULL;
 ID3D11VertexShader* vertexShader = NULL;
 ID3D11PixelShader* pixelShader = NULL;
+ID3D11PixelShader* pixelShaderSolid = NULL;
 ID3D11DepthStencilView* depthStencilView = NULL;
 ID3D11Texture2D* depthStencilBuffer = NULL;
 ID3D11Buffer* indexBuffer = NULL;        // Буфер индексов вершин
@@ -34,6 +35,9 @@ ID3D11Buffer* constantBuffer = NULL;           // Константный буфер
 XMMATRIX                g_World;                      // Матрица мира
 XMMATRIX                g_View;                       // Матрица вида
 XMMATRIX                g_Projection;                 // Матрица проекции
+FLOAT                 t = 0.0f;                // Переменная-время
+XMFLOAT4              vLightDirs[2];           // Направление света (позиция источников)
+XMFLOAT4              vLightColors[2];         // Цвет источников
 
 
 namespace timer
@@ -277,8 +281,7 @@ namespace Shaders {
 	{
 		HRESULT hr;
 
-		hr = D3DCompileFromFile(name, NULL, NULL,
-			"VS", "vs_5_0", NULL, NULL, &VS[i].pBlob, &pErrorBlob);
+		hr = D3DCompileFromFile(name, NULL, NULL, "VS", "vs_5_0", NULL, NULL, &VS[i].pBlob, &pErrorBlob);
 		CompilerLog(name, hr, "vertex shader compiled: ");
 
 		if (hr == S_OK)
@@ -289,10 +292,8 @@ namespace Shaders {
 				&VS[i].vShader);
 
 			D3D11_INPUT_ELEMENT_DESC layout[] = {
-				{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,
-				  D3D11_INPUT_PER_VERTEX_DATA, 0 },
-				{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12,
-				  D3D11_INPUT_PER_VERTEX_DATA, 0 }
+				{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+				{  "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 }
 			};
 			UINT numElements = ARRAYSIZE(layout);
 
@@ -312,8 +313,7 @@ namespace Shaders {
 	{
 		HRESULT hr;
 
-		hr = D3DCompileFromFile(name, NULL, NULL,
-			"PS", "ps_5_0", NULL, NULL, &PS[i].pBlob, &pErrorBlob);
+		hr = D3DCompileFromFile(name, NULL, NULL, "PS", "ps_5_0", NULL, NULL, &PS[i].pBlob, &pErrorBlob);
 		CompilerLog(name, hr, "pixel shader compiled: ");
 
 		if (hr == S_OK)
@@ -327,7 +327,7 @@ namespace Shaders {
 	{
 		CreateVS(0, nameToPatchLPCWSTR("..\\TheStrongest\\VS.hlsl"));
 		CreatePS(0, nameToPatchLPCWSTR("..\\TheStrongest\\PS.hlsl"));
-
+		CreatePS(1, nameToPatchLPCWSTR("..\\TheStrongest\\PSSOlid.hlsl"));
 	}
 
 	void vShader(unsigned int n)
@@ -348,7 +348,7 @@ namespace Buffers
 	struct SimpleVertex
 	{
 		XMFLOAT3 Pos;
-		XMFLOAT4 Color;
+		XMFLOAT3 Normal; // Нормаль вершины
 	};
 
 	struct ConstantBuffer
@@ -356,25 +356,65 @@ namespace Buffers
 		XMMATRIX mWorld;       // Матрица мира
 		XMMATRIX mView;        // Матрица вида
 		XMMATRIX mProjection;  // Матрица проекции
+		XMFLOAT4 vLightDir[2]; // Направление света
+		XMFLOAT4 vLightColor[2];      // Цвет источника
+		XMFLOAT4 vOutputColor; // Активный цвет (для второго PSSolid)
 	};
 
+	// Создание буфера вершин (по 4 точки на каждую сторону куба, всего 24 вершины)
+
 	SimpleVertex vertices[] =
-	{  /* координаты X, Y, Z                          цвет R, G, B, A     */
-		{ XMFLOAT3(0.0f,  1.5f,  0.0f), XMFLOAT4(1.0f, 1.0f, 0.0f, 1.0f) },
-		{ XMFLOAT3(-1.0f,  0.0f, -1.0f), XMFLOAT4(0.0f, 1.0f, 0.0f, 1.0f) },
-		{ XMFLOAT3(1.0f,  0.0f, -1.0f), XMFLOAT4(1.0f, 0.0f, 0.0f, 1.0f) },
-		{ XMFLOAT3(-1.0f,  0.0f,  1.0f), XMFLOAT4(0.0f, 1.0f, 1.0f, 1.0f) },
-		{ XMFLOAT3(1.0f,  0.0f,  1.0f), XMFLOAT4(1.0f, 0.0f, 1.0f, 1.0f) }
+	{  /* координаты X, Y, Z                          нормаль X, Y, Z     */
+		{ XMFLOAT3(-1.0f, 1.0f, -1.0f),      XMFLOAT3(0.0f, 1.0f, 0.0f) },
+		{ XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
+		{ XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
+		{ XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
+
+		{ XMFLOAT3(-1.0f, -1.0f, -1.0f),     XMFLOAT3(0.0f, -1.0f, 0.0f) },
+		{ XMFLOAT3(1.0f, -1.0f, -1.0f),      XMFLOAT3(0.0f, -1.0f, 0.0f) },
+		{ XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },
+		{ XMFLOAT3(-1.0f, -1.0f, 1.0f),      XMFLOAT3(0.0f, -1.0f, 0.0f) },
+
+		{ XMFLOAT3(-1.0f, -1.0f, 1.0f),      XMFLOAT3(-1.0f, 0.0f, 0.0f) },
+		{ XMFLOAT3(-1.0f, -1.0f, -1.0f),     XMFLOAT3(-1.0f, 0.0f, 0.0f) },
+		{ XMFLOAT3(-1.0f, 1.0f, -1.0f),      XMFLOAT3(-1.0f, 0.0f, 0.0f) },
+		{ XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },
+
+		{ XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },
+		{ XMFLOAT3(1.0f, -1.0f, -1.0f),      XMFLOAT3(1.0f, 0.0f, 0.0f) },
+		{ XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },
+		{ XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },
+
+		{ XMFLOAT3(-1.0f, -1.0f, -1.0f),     XMFLOAT3(0.0f, 0.0f, -1.0f) },
+		{ XMFLOAT3(1.0f, -1.0f, -1.0f),      XMFLOAT3(0.0f, 0.0f, -1.0f) },
+		{ XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },
+		{ XMFLOAT3(-1.0f, 1.0f, -1.0f),      XMFLOAT3(0.0f, 0.0f, -1.0f) },
+
+		{ XMFLOAT3(-1.0f, -1.0f, 1.0f),      XMFLOAT3(0.0f, 0.0f, 1.0f) },
+		{ XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },
+		{ XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },
+		{ XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },
 	};
 
 	WORD indices[] =
-	{  // индексы массива vertices[], по которым строятся треугольники
-		0,2,1,      /* Треугольник 1 = vertices[0], vertices[2], vertices[1] */
-		0,3,4,      /* Треугольник 2 = vertices[0], vertices[3], vertices[4] */
-		0,1,3,      /* и т. д. */
-		0,4,2,
-		1,2,3,
-		2,4,3,
+	{
+		3,1,0,
+		2,1,3,
+
+		6,4,5,
+		7,4,6,
+
+		11,9,8,
+		10,9,11,
+
+		14,12,13,
+		15,12,14,
+
+		19,17,16,
+		18,17,19,
+
+		22,20,21,
+		23,20,22
 	};
 
 	void Create()
@@ -382,7 +422,7 @@ namespace Buffers
 		D3D11_BUFFER_DESC bd;
 		ZeroMemory(&bd, sizeof(bd));
 		bd.Usage = D3D11_USAGE_DEFAULT;
-		bd.ByteWidth = sizeof(SimpleVertex) * 5;
+		bd.ByteWidth = sizeof(SimpleVertex) * 24;
 		bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
 		bd.CPUAccessFlags = 0;
 		bd.MiscFlags = 0;
@@ -396,7 +436,7 @@ namespace Buffers
 		//создаем буфер индексов
 		ZeroMemory(&bd, sizeof(bd));
 		bd.Usage = D3D11_USAGE_DEFAULT;
-		bd.ByteWidth = sizeof(SimpleVertex) * 18;
+		bd.ByteWidth = sizeof(WORD) * 36;
 		bd.BindFlags = D3D11_BIND_INDEX_BUFFER;
 		bd.CPUAccessFlags = 0;
 		bd.MiscFlags = 0;
@@ -439,7 +479,7 @@ namespace Matrixes
 		// Инициализация матрицы мира
 		g_World = XMMatrixIdentity();
 		// Инициализация матрицы вида
-		XMVECTOR Eye = XMVectorSet(0.0f, 2.0f, -8.0f, 0.0f);  // Откуда смотрим
+		XMVECTOR Eye = XMVectorSet(0.0f, 4.0f, -10.0f, 0.0f);  // Откуда смотрим
 		XMVECTOR At = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);    // Куда смотрим
 		XMVECTOR Up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);    // Направление верха
 		g_View = XMMatrixLookAtLH(Eye, At, Up);
@@ -493,6 +533,71 @@ namespace Matrixes
 		// загружаем временную структуру в константный буфер g_pConstantBuffer
 		context->UpdateSubresource(constantBuffer, 0, NULL, &cb, 0, 0);
 	}
+
+	void UpdateLight()
+	{
+		// Обновление переменной-времени
+		if (Device::driverType == D3D_DRIVER_TYPE_REFERENCE)
+		{
+			t += (float)XM_PI * 0.0125f;
+		}
+		else
+		{
+			static DWORD dwTimeStart = 0;
+			DWORD dwTimeCur = GetTickCount();
+			if (dwTimeStart == 0)
+				dwTimeStart = dwTimeCur;
+			t = (dwTimeCur - dwTimeStart) / 1000.0f;
+		}
+
+		// Задаем начальные координаты источников света
+		vLightDirs[0] = XMFLOAT4(-0.577f, 0.577f, -0.577f, 1.0f);
+		vLightDirs[1] = XMFLOAT4(0.0f, 0.0f, -1.0f, 1.0f);
+		// Задаем цвет источников света, у нас он не будет меняться
+		vLightColors[0] = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+		vLightColors[1] = XMFLOAT4(1.0f, 0.0f, 0.0f, 1.0f);
+		// При помощи трансформаций поворачиваем второй источник света
+		XMMATRIX mRotate = XMMatrixRotationY(-2.0f * t);
+		XMVECTOR vLightDir = XMLoadFloat4(&vLightDirs[1]);
+		vLightDir = XMVector3Transform(vLightDir, mRotate);
+		XMStoreFloat4(&vLightDirs[1], vLightDir);
+
+		// При помощи трансформаций поворачиваем первый источник света
+		mRotate = XMMatrixRotationY(0.5f * t);
+		vLightDir = XMLoadFloat4(&vLightDirs[0]);
+		vLightDir = XMVector3Transform(vLightDir, mRotate);
+		XMStoreFloat4(&vLightDirs[0], vLightDir);
+	}
+
+	void Update(UINT nLightIndex)
+	{
+		// Небольшая проверка индекса
+		if (nLightIndex == MX_SETWORLD) {
+			// Если рисуем центральный куб: его надо просто вращать
+			g_World = XMMatrixRotationAxis(XMVectorSet(1.0f, 1.0f, 1.0f, 0.0f), t);
+			nLightIndex = 0;
+		}
+		else if (nLightIndex < 2) {
+			// Если рисуем источники света: перемещаем матрицу в точку и уменьшаем в 5 раз
+			g_World = XMMatrixTranslationFromVector(5.0f * XMLoadFloat4(&vLightDirs[nLightIndex]));
+			XMMATRIX mLightScale = XMMatrixScaling(0.2f, 0.2f, 0.2f);
+			g_World = mLightScale * g_World;
+		}
+		else {
+			nLightIndex = 0;
+		}
+		// Обновление содержимого константного буфера
+		Buffers::ConstantBuffer cb1;    // временный контейнер
+		cb1.mWorld = XMMatrixTranspose(g_World); // загружаем в него матрицы
+		cb1.mView = XMMatrixTranspose(g_View);
+		cb1.mProjection = XMMatrixTranspose(g_Projection);
+		cb1.vLightDir[0] = vLightDirs[0];          // загружаем данные о свете
+		cb1.vLightDir[1] = vLightDirs[1];
+		cb1.vLightColor[0] = vLightColors[0];
+		cb1.vLightColor[1] = vLightColors[1];
+		cb1.vOutputColor = vLightColors[nLightIndex];
+		context->UpdateSubresource(constantBuffer, 0, NULL, &cb1, 0, 0);
+	}
 }
 
 void Dx11Init()
@@ -534,7 +639,7 @@ namespace Draw
 		Buffers::BufferToVertex();
 
 		// Рисуем 3 вершины (1 треугольник)
-		context->DrawIndexed(18, 0, 0);
+		context->DrawIndexed(36, 0, 0);
 	}
 
 	void Present()
@@ -551,19 +656,32 @@ void mainLoop()
 	InputAssembler::IA(InputAssembler::topology::triList);
 
 	// 2. Очищаем буфер
-	Draw::Clear({ 1,1,1,1});
+	Draw::Clear({ 0,0,1,1});
+
+	Matrixes::UpdateLight();
+
+	Matrixes::Update(MX_SETWORLD);
 
 	// 3. Установка rendertarget
 	context->OMSetRenderTargets(1, &renderTargetView, depthStencilView);
-	for (int i = 0; i < 6; i++)
-	{
-		Matrixes::Set(i * (XM_PI * 2) / 6);
-		// 4. Устанавливаем шейдеры
-		Shaders::vShader(0);
-		context->VSSetConstantBuffers(0, 1, &constantBuffer);
-		Shaders::pShader(0);
+	
+    // 4. Устанавливаем шейдеры
+	Shaders::vShader(0);
+	context->VSSetConstantBuffers(0, 1, &constantBuffer);
+	Shaders::pShader(0);
+	context->PSSetConstantBuffers(0, 1, &constantBuffer);
 
-		// 5. Рисуем
+	// 5. Рисуем
+	Draw::Drawer();
+
+	Shaders::pShader(1);
+
+	for (int m = 0; m < 2; m++)
+	{
+		// 2) Устанавливаем матрицу мира источника света
+		Matrixes::Update(m);
+		// 3) Рисуем в заднем буфере 36 вершин
+		context->PSSetConstantBuffers(0, 1, &constantBuffer);
 		Draw::Drawer();
 	}
 	

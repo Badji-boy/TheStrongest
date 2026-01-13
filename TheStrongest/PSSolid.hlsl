@@ -6,13 +6,7 @@ cbuffer ConstantBuffer : register(b0)
     float4 vLightDir[2]; // Направление источника света
     float4 vLightColor[2]; // Цвет источника света
     float4 vOutputColor; // Активный цвет
-};
-
-struct VS_INPUT // Входящие данные вершинного шейдера
-{
-    float4 Pos : POSITION; // Позиция по X, Y, Z
-    float3 Norm : NORMAL; // Нормаль по X, Y, Z
-};
+}
 
 struct PS_INPUT // Входящие данные пиксельного шейдера
 {
@@ -20,15 +14,7 @@ struct PS_INPUT // Входящие данные пиксельного шейдера
     float3 Norm : TEXCOORD0; // Относительная нормаль пикселя по tu, tv
 };
 
-
-PS_INPUT VS(VS_INPUT input)
+float4 PS(PS_INPUT input) : SV_Target
 {
-    PS_INPUT output = (PS_INPUT) 0;
-    output.Pos = mul(input.Pos, World);
-    output.Pos = mul(output.Pos, View);
-    output.Pos = mul(output.Pos, Projection);
-    output.Norm = mul(input.Norm, (float3x3)World);
-
-    return output;
-
+    return vOutputColor;
 }
