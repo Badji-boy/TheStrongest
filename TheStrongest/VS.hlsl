@@ -1,20 +1,23 @@
-struct VS_INPUT
+cbuffer ConstantBuffer : register(b0) // b0 - индекс буфера
 {
-    float3 Pos : POSITION;
-    float4 Color : COLOR;
-};
-
-struct PS_INPUT
+    matrix World;
+    matrix View;
+    matrix Projection;
+}
+struct VS_OUTPUT    // формат выходных данных вершинного шейдера
 {
     float4 Pos : SV_POSITION;
-    float4 Color : COLOR;
+    float4 Color : COLOR0;
 };
 
-PS_INPUT VS(VS_INPUT input)
+VS_OUTPUT VS(float4 Pos : POSITION, float4 Color : COLOR)
 {
-    PS_INPUT output;
-    input.Pos.x *= 0.5;
-    output.Pos = float4(input.Pos, 1.0f);
-    output.Color = input.Color;
+    VS_OUTPUT output = (VS_OUTPUT) 0;
+    // Трансформация позиции вершины при помощи умножения на матрицу
+    output.Pos = mul(Pos, World); // сначала в пространство мира
+    output.Pos = mul(output.Pos, View); // затем в пространство вида
+    output.Pos = mul(output.Pos, Projection); // в проекционное пространство
+    output.Color = Color;
     return output;
+
 }

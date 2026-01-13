@@ -29,6 +29,11 @@ ID3D11VertexShader* vertexShader = NULL;
 ID3D11PixelShader* pixelShader = NULL;
 ID3D11DepthStencilView* depthStencilView = NULL;
 ID3D11Texture2D* depthStencilBuffer = NULL;
+ID3D11Buffer* indexBuffer = NULL;        // Буфер индексов вершин
+ID3D11Buffer* constantBuffer = NULL;           // Константный буфер
+XMMATRIX                g_World;                      // Матрица мира
+XMMATRIX                g_View;                       // Матрица вида
+XMMATRIX                g_Projection;                 // Матрица проекции
 
 
 namespace timer
@@ -346,10 +351,30 @@ namespace Buffers
 		XMFLOAT4 Color;
 	};
 
-	SimpleVertex vertices[] = {
-		{ XMFLOAT3(0.0f, 0.5f, 0.5f),  XMFLOAT4(1.0f, 0.0f, 0.0f, 1.0f) },  // Верх (красный)
-		{ XMFLOAT3(0.5f, -0.5f, 0.5f), XMFLOAT4(0.0f, 1.0f, 0.0f, 1.0f) },  // Правый низ (зеленый)
-		{ XMFLOAT3(-0.5f, -0.5f, 0.5f), XMFLOAT4(0.0f, 0.0f, 1.0f, 1.0f) }  // Левый низ (синий)
+	struct ConstantBuffer
+	{
+		XMMATRIX mWorld;       // Матрица мира
+		XMMATRIX mView;        // Матрица вида
+		XMMATRIX mProjection;  // Матрица проекции
+	};
+
+	SimpleVertex vertices[] =
+	{  /* координаты X, Y, Z                          цвет R, G, B, A     */
+		{ XMFLOAT3(0.0f,  1.5f,  0.0f), XMFLOAT4(1.0f, 1.0f, 0.0f, 1.0f) },
+		{ XMFLOAT3(-1.0f,  0.0f, -1.0f), XMFLOAT4(0.0f, 1.0f, 0.0f, 1.0f) },
+		{ XMFLOAT3(1.0f,  0.0f, -1.0f), XMFLOAT4(1.0f, 0.0f, 0.0f, 1.0f) },
+		{ XMFLOAT3(-1.0f,  0.0f,  1.0f), XMFLOAT4(0.0f, 1.0f, 1.0f, 1.0f) },
+		{ XMFLOAT3(1.0f,  0.0f,  1.0f), XMFLOAT4(1.0f, 0.0f, 1.0f, 1.0f) }
+	};
+
+	WORD indices[] =
+	{  // индексы массива vertices[], по которым строятся треугольники
+		0,2,1,      /* Треугольник 1 = vertices[0], vertices[2], vertices[1] */
+		0,3,4,      /* Треугольник 2 = vertices[0], vertices[3], vertices[4] */
+		0,1,3,      /* и т. д. */
+		0,4,2,
+		1,2,3,
+		2,4,3,
 	};
 
 	void Create()
@@ -357,7 +382,7 @@ namespace Buffers
 		D3D11_BUFFER_DESC bd;
 		ZeroMemory(&bd, sizeof(bd));
 		bd.Usage = D3D11_USAGE_DEFAULT;
-		bd.ByteWidth = sizeof(SimpleVertex) * 3;
+		bd.ByteWidth = sizeof(SimpleVertex) * 5;
 		bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
 		bd.CPUAccessFlags = 0;
 		bd.MiscFlags = 0;
@@ -368,6 +393,28 @@ namespace Buffers
 
 		HRESULT hr = device->CreateBuffer(&bd, &InitData, &vertexBuffer);
 
+		//создаем буфер индексов
+		ZeroMemory(&bd, sizeof(bd));
+		bd.Usage = D3D11_USAGE_DEFAULT;
+		bd.ByteWidth = sizeof(SimpleVertex) * 18;
+		bd.BindFlags = D3D11_BIND_INDEX_BUFFER;
+		bd.CPUAccessFlags = 0;
+		bd.MiscFlags = 0;
+
+		InitData.pSysMem = indices;
+
+		hr = device->CreateBuffer(&bd, &InitData, &indexBuffer);
+
+		//создаем константный буфер
+		ZeroMemory(&bd, sizeof(bd));
+		bd.Usage = D3D11_USAGE_DEFAULT;
+		bd.ByteWidth = sizeof(ConstantBuffer);
+		bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+		bd.CPUAccessFlags = 0;
+		bd.MiscFlags = 0;
+
+	    hr = device->CreateBuffer(&bd, nullptr, &constantBuffer);
+
 		
 	}
 
@@ -376,6 +423,7 @@ namespace Buffers
 		UINT stride = sizeof(SimpleVertex);
 		UINT offset = 0;
 		context->IASetVertexBuffers(0, 1, &vertexBuffer, &stride, &offset);
+		context->IASetIndexBuffer(indexBuffer, DXGI_FORMAT_R16_UINT, 0);
 	}
 
 	void Init()
@@ -384,6 +432,51 @@ namespace Buffers
 	}
 }
 
+namespace Matrixes
+{
+	void Init()
+	{
+		// Инициализация матрицы мира
+		g_World = XMMatrixIdentity();
+		// Инициализация матрицы вида
+		XMVECTOR Eye = XMVectorSet(0.0f, 5.0f, -5.0f, 0.0f);  // Откуда смотрим
+		XMVECTOR At = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);    // Куда смотрим
+		XMVECTOR Up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);    // Направление верха
+		g_View = XMMatrixLookAtLH(Eye, At, Up);
+		// Инициализация матрицы проекции
+		g_Projection = XMMatrixPerspectiveFovLH(XM_PIDIV4, width / (FLOAT)height, 0.01f, 100.0f);
+	}
+
+	void Set()
+	{
+		// Обновление переменной-времени
+		static float t = 0.0f;
+		if (Device::driverType == D3D_DRIVER_TYPE_REFERENCE)
+		{
+			t += (float)XM_PI * 0.0125f;
+		}
+		else
+		{
+			static DWORD dwTimeStart = 0;
+			DWORD dwTimeCur = GetTickCount();
+			if (dwTimeStart == 0)
+				dwTimeStart = dwTimeCur;
+			t = (dwTimeCur - dwTimeStart) / 1000.0f;
+		}
+
+		// Вращать мир по оси Y на угол t (в радианах)
+		g_World = XMMatrixRotationY(t);
+
+		// Обновить константный буфер
+		// создаем временную структуру и загружаем в нее матрицы
+		Buffers::ConstantBuffer cb;
+		cb.mWorld = XMMatrixTranspose(g_World);
+		cb.mView = XMMatrixTranspose(g_View);
+		cb.mProjection = XMMatrixTranspose(g_Projection);
+		// загружаем временную структуру в константный буфер g_pConstantBuffer
+		context->UpdateSubresource(constantBuffer, 0, NULL, &cb, 0, 0);
+	}
+}
 
 void Dx11Init()
 {
@@ -395,6 +488,7 @@ void Dx11Init()
 	Device::Init();
 	Shaders::Init();
 	Buffers::Init();
+	Matrixes::Init();
 }
 
 
@@ -414,9 +508,7 @@ namespace Draw
 
 		if (currentRTV)
 			context->ClearRenderTargetView(currentRTV, XMVECTORF32{ color.r,color.g,color.b,color.a });
-		context->ClearDepthStencilView(depthStencilView,
-			D3D11_CLEAR_DEPTH, 1.0f, 0);  // Очистка буфера глубины
-
+		    context->ClearDepthStencilView(depthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);  // Очистка буфера глубины
 	}
 
 	void Drawer()
@@ -425,7 +517,7 @@ namespace Draw
 		Buffers::BufferToVertex();
 
 		// Рисуем 3 вершины (1 треугольник)
-		context->Draw(3, 0);
+		context->DrawIndexed(18, 0, 0);
 	}
 
 	void Present()
@@ -437,17 +529,19 @@ namespace Draw
 
 void mainLoop()
 {
+	Matrixes::Set();
 	// 1. Устанавливаем топологию
 	InputAssembler::IA(InputAssembler::topology::triList);
 
 	// 2. Очищаем буфер
-	Draw::Clear({ 0,1,1,1});
+	Draw::Clear({ 1,1,1,1});
 
 	// 3. Установка rendertarget
 	context->OMSetRenderTargets(1, &renderTargetView, depthStencilView);
 
 	// 4. Устанавливаем шейдеры
 	Shaders::vShader(0);
+	context->VSSetConstantBuffers(0, 1, &constantBuffer);
 	Shaders::pShader(0);
 
 	// 5. Рисуем
