@@ -4,7 +4,7 @@
 #pragma comment(lib, "dxguid.lib")
 #pragma comment(lib, "winmm.lib")
 #pragma comment(lib, "xaudio2.lib")
-#pragma comment(lib, "d3dx11.lib")
+//#pragma comment(lib, "D3DX11.lib")
 
 #include <d3d11.h>
 #include <d3dcompiler.h>
@@ -525,8 +525,31 @@ namespace Buffers
 		device->CreateTexture2D(&desc, &initData, &texture);
 
 		// Создаем Shader Resource View
-		ComPtr<ID3D11ShaderResourceView> srv;
-		device->CreateShaderResourceView(texture.Get(), nullptr, &srv);
+		//ComPtr<ID3D11ShaderResourceView> srv;
+		device->CreateShaderResourceView(texture.Get(), nullptr, &TextureRV);
+		// Создание сэмпла (описания) текстуры
+
+		D3D11_SAMPLER_DESC sampDesc;
+
+		ZeroMemory(&sampDesc, sizeof(sampDesc));
+
+		sampDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;      // Тип фильтрации
+
+		sampDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;         // Задаем координаты
+
+		sampDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
+
+		sampDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+
+		sampDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+
+		sampDesc.MinLOD = 0;
+
+		sampDesc.MaxLOD = D3D11_FLOAT32_MAX;
+
+		// Создаем интерфейс сэмпла текстурирования
+
+		hr = device->CreateSamplerState(&sampDesc, &SamplerLinear);
 	}
 
 	void BufferToVertex()
@@ -539,7 +562,7 @@ namespace Buffers
 
 	void Init()
 	{
-		Create();
+		Create(L"texture.png");
 	}
 }
 
@@ -597,12 +620,12 @@ namespace Matrixes
 
 		// Обновить константный буфер
 		// создаем временную структуру и загружаем в нее матрицы
-		Buffers::ConstantBuffer cb;
-		cb.mWorld = XMMatrixTranspose(g_World);
-		cb.mView = XMMatrixTranspose(g_View);
-		cb.mProjection = XMMatrixTranspose(g_Projection);
+		//Buffers::ConstantBuffer cb;
+		//cb.mWorld = XMMatrixTranspose(g_World);
+		//cb.mView = XMMatrixTranspose(g_View);
+		//cb.mProjection = XMMatrixTranspose(g_Projection);
 		// загружаем временную структуру в константный буфер g_pConstantBuffer
-		context->UpdateSubresource(constantBuffer, 0, NULL, &cb, 0, 0);
+		//context->UpdateSubresource(constantBuffer, 0, NULL, &cb, 0, 0);
 	}
 
 	void UpdateLight()
@@ -658,16 +681,18 @@ namespace Matrixes
 			nLightIndex = 0;
 		}
 		// Обновление содержимого константного буфера
-		Buffers::ConstantBuffer cb1;    // временный контейнер
-		cb1.mWorld = XMMatrixTranspose(g_World); // загружаем в него матрицы
+		Buffers::ConstantBufferMatrixes cb1;    // временный контейнер для первого буферв
+		Buffers::ConstantBufferLight cb2;    // временный контейнер для второго буфера
+		cb1.mWorld = XMMatrixTranspose(g_World);    // загружаем в него матрицы
 		cb1.mView = XMMatrixTranspose(g_View);
 		cb1.mProjection = XMMatrixTranspose(g_Projection);
-		cb1.vLightDir[0] = vLightDirs[0];          // загружаем данные о свете
-		cb1.vLightDir[1] = vLightDirs[1];
-		cb1.vLightColor[0] = vLightColors[0];
-		cb1.vLightColor[1] = vLightColors[1];
-		cb1.vOutputColor = vLightColors[nLightIndex];
-		context->UpdateSubresource(constantBuffer, 0, NULL, &cb1, 0, 0);
+		cb2.vLightDir[0] = vLightDirs[0];            // загружаем данные о свете
+		cb2.vLightDir[1] = vLightDirs[1];
+		cb2.vLightColor[0] = vLightColors[0];
+		cb2.vLightColor[1] = vLightColors[1];
+		cb2.vOutputColor = vLightColors[nLightIndex];
+		context->UpdateSubresource(CBMatrixes, 0, NULL, &cb1, 0, 0);
+		context->UpdateSubresource(CBLight, 0, NULL, &cb2, 0, 0);
 	}
 }
 
@@ -731,19 +756,21 @@ void mainLoop()
 
 	Matrixes::UpdateLight();
 
-	Matrixes::Update(MX_SETWORLD);
+	
 
 	// 3. Установка rendertarget
 	context->OMSetRenderTargets(1, &renderTargetView, depthStencilView);
 	
     // 4. Устанавливаем шейдеры
 	Shaders::vShader(0);
-	context->VSSetConstantBuffers(0, 1, &constantBuffer);
-	Shaders::pShader(0);
-	context->PSSetConstantBuffers(0, 1, &constantBuffer);
+	context->VSSetConstantBuffers(0, 1, &CBMatrixes);
+	context->VSSetConstantBuffers(1, 1, &CBLight);
+	context->PSSetConstantBuffers(0, 1, &CBMatrixes);
+	context->PSSetConstantBuffers(1, 1, &CBLight);
+	context->PSSetShaderResources(0, 1, &TextureRV);
 
-	// 5. Рисуем
-	Draw::Drawer();
+	context->PSSetSamplers(0, 1, &SamplerLinear);
+	
 
 	Shaders::pShader(1);
 
@@ -752,10 +779,15 @@ void mainLoop()
 		// 2) Устанавливаем матрицу мира источника света
 		Matrixes::Update(m);
 		// 3) Рисуем в заднем буфере 36 вершин
-		context->PSSetConstantBuffers(0, 1, &constantBuffer);
+		//context->PSSetConstantBuffers(0, 1, &constantBuffer);
 		Draw::Drawer();
 	}
-	
+	Matrixes::Update(MX_SETWORLD);
+
+	Shaders::pShader(0);
+
+	// 5. Рисуем
+	Draw::Drawer();
 
 	// 6. Показываем результат
 	Draw::Present();

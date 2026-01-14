@@ -33,12 +33,6 @@
     <ClInclude Include="dx11.h">
       <Filter>Source Files</Filter>
     </ClInclude>
-    <ClInclude Include="PS.h">
-      <Filter>Source Files</Filter>
-    </ClInclude>
-    <ClInclude Include="VS.h">
-      <Filter>Source Files</Filter>
-    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="TheStrongest.cpp">
@@ -57,6 +51,9 @@
     <Image Include="TheStrongest.ico">
       <Filter>Resource Files</Filter>
     </Image>
+    <Image Include="texture.png">
+      <Filter>Resource Files</Filter>
+    </Image>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="VS.hlsl">
@@ -65,5 +62,6 @@
     <FxCompile Include="PS.hlsl">
       <Filter>Header Files\Shaders</Filter>
     </FxCompile>
+    <FxCompile Include="PSSolid.hlsl" />
   </ItemGroup>
 </Project>

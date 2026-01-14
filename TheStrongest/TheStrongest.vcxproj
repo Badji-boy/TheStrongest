@@ -139,6 +139,7 @@
   </ItemGroup>
   <ItemGroup>
     <Image Include="small.ico" />
+    <Image Include="texture.png" />
     <Image Include="TheStrongest.ico" />
   </ItemGroup>
   <ItemGroup>
