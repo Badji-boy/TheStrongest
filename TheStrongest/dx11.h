@@ -4,7 +4,7 @@
 #pragma comment(lib, "dxguid.lib")
 #pragma comment(lib, "winmm.lib")
 #pragma comment(lib, "xaudio2.lib")
-//#pragma comment(lib, "D3DX11.lib")
+
 
 #include <d3d11.h>
 #include <d3dcompiler.h>
