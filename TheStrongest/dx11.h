@@ -464,7 +464,7 @@ namespace Buffers
 		//создаем константный буфер
 		ZeroMemory(&bd, sizeof(bd));
 		bd.Usage = D3D11_USAGE_DEFAULT;
-		bd.ByteWidth = sizeof(CBMatrixes);
+		bd.ByteWidth = sizeof(ConstantBufferMatrixes);
 		bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
 		bd.CPUAccessFlags = 0;
 		bd.MiscFlags = 0;
@@ -473,7 +473,7 @@ namespace Buffers
 
 		ZeroMemory(&bd, sizeof(bd));
 		bd.Usage = D3D11_USAGE_DEFAULT;
-		bd.ByteWidth = sizeof(CBLight);
+		bd.ByteWidth = sizeof(ConstantBufferLight);
 		bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
 		bd.CPUAccessFlags = 0;
 		bd.MiscFlags = 0;
@@ -510,41 +510,35 @@ namespace Buffers
 		D3D11_TEXTURE2D_DESC desc = {};
 		desc.Width = width;
 		desc.Height = height;
-		desc.MipLevels = 1;
+		desc.MipLevels = 0;
 		desc.ArraySize = 1;
 		desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 		desc.SampleDesc.Count = 1;
 		desc.Usage = D3D11_USAGE_DEFAULT;
-		desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+		desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+		desc.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
 
 		D3D11_SUBRESOURCE_DATA initData = {};
 		initData.pSysMem = pixels.data();
 		initData.SysMemPitch = width * 4;
 
 		ComPtr<ID3D11Texture2D> texture;
-		device->CreateTexture2D(&desc, &initData, &texture);
-
+		device->CreateTexture2D(&desc, nullptr, &texture);
+		context->UpdateSubresource(texture.Get(), 0, nullptr, pixels.data(), width * 4, 0);
 		// Создаем Shader Resource View
 		//ComPtr<ID3D11ShaderResourceView> srv;
 		device->CreateShaderResourceView(texture.Get(), nullptr, &TextureRV);
+		context->GenerateMips(TextureRV);
 		// Создание сэмпла (описания) текстуры
 
 		D3D11_SAMPLER_DESC sampDesc;
-
 		ZeroMemory(&sampDesc, sizeof(sampDesc));
-
 		sampDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;      // Тип фильтрации
-
 		sampDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;         // Задаем координаты
-
 		sampDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
-
 		sampDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
-
 		sampDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
-
 		sampDesc.MinLOD = 0;
-
 		sampDesc.MaxLOD = D3D11_FLOAT32_MAX;
 
 		// Создаем интерфейс сэмпла текстурирования
