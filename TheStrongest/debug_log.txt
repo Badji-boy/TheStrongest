@@ -1,0 +1,12 @@
+=== Logging started ===
+Program initialized
+Application started
+Command line: 
+Device::Init started
+Window dimensions: 1424x700
+Device::Init completed
+Frame 60 rendered
+Frame 120 rendered
+Frame 180 rendered
+Application shutting down
+=== Logging ended ===

@@ -16,6 +16,7 @@
 #include <string>
 #include <iostream>
 #include "vector"
+#include "Logger.h"
 
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
@@ -101,6 +102,8 @@ namespace Device
 
 	void Init()
 	{
+		Logger::Log("Device::Init started\n");
+		Logger::LogFormatted("Window dimensions: %dx%d\n", width, height);
 		HRESULT hr;
 
 		DXGI_SWAP_CHAIN_DESC sd;
@@ -146,11 +149,29 @@ namespace Device
 			&context
 		);
 
+		if (FAILED(hr))
+		{
+			Logger::LogError("D3D11CreateDeviceAndSwapChain", hr);
+			return;
+		}
+
 		ID3D11Texture2D* backBuffer = NULL;
 		hr = swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&backBuffer);
 
+		if (FAILED(hr))
+		{
+			Logger::LogError("ID3D11Texture2DGetBuffer", hr);
+			return;
+		}
+
 		hr = device->CreateRenderTargetView(backBuffer, nullptr, &renderTargetView);
-		backBuffer->Release();
+
+		if (FAILED(hr))
+		{
+			Logger::LogError("CreateRenderTargetView", hr);
+			return;
+		}
+		//backBuffer->Release();
 
 		D3D11_TEXTURE2D_DESC depthBufferDesc;
 		ZeroMemory(&depthBufferDesc, sizeof(depthBufferDesc));
@@ -206,6 +227,7 @@ namespace Device
 
 		device->CreateRasterizerState(&rasterizerDesc, &rasterizerState);
 		context->RSSetState(rasterizerState);
+		Logger::Log("Device::Init completed\n");
 	}
 
 }
@@ -316,6 +338,11 @@ namespace Shaders {
 				VS[i].pBlob->GetBufferSize(),
 				&VS[i].pLayout 
 			);
+			if (FAILED(hr))
+			{
+				Logger::LogError("CreateInputLayout", hr);
+				return;
+			}
 			context->IASetInputLayout(Shaders::VS[0].pLayout);
 
 		}
@@ -448,6 +475,11 @@ namespace Buffers
 		InitData.pSysMem = vertices;
 
 		HRESULT hr = device->CreateBuffer(&bd, &InitData, &vertexBuffer);
+		if (FAILED(hr))
+		{
+			Logger::LogError("CreateVertexBuffer", hr);
+			return;
+		}
 
 		//создаем буфер индексов
 		ZeroMemory(&bd, sizeof(bd));
@@ -460,6 +492,11 @@ namespace Buffers
 		InitData.pSysMem = indices;
 
 		hr = device->CreateBuffer(&bd, &InitData, &indexBuffer);
+		if (FAILED(hr))
+		{
+			Logger::LogError("CreateIndexBuffer", hr);
+			return;
+		}
 
 		//создаем константный буфер
 		ZeroMemory(&bd, sizeof(bd));
@@ -470,6 +507,11 @@ namespace Buffers
 		bd.MiscFlags = 0;
 
 	    hr = device->CreateBuffer(&bd, nullptr, &CBMatrixes);
+		if (FAILED(hr))
+		{
+			Logger::LogError("CreateCBMatrixesBuffer", hr);
+			return;
+		}
 
 		ZeroMemory(&bd, sizeof(bd));
 		bd.Usage = D3D11_USAGE_DEFAULT;
@@ -479,6 +521,11 @@ namespace Buffers
 		bd.MiscFlags = 0;
 
 		hr = device->CreateBuffer(&bd, nullptr, &CBLight);
+		if (FAILED(hr))
+		{
+			Logger::LogError("CreateCBLightBuffer", hr);
+			return;
+		}
 
 		ComPtr<IWICImagingFactory> wicFactory;
 		ComPtr<IWICBitmapDecoder> decoder;
@@ -544,6 +591,11 @@ namespace Buffers
 		// Создаем интерфейс сэмпла текстурирования
 
 		hr = device->CreateSamplerState(&sampDesc, &SamplerLinear);
+		if (FAILED(hr))
+		{
+			Logger::LogError("CreateSamplerState", hr);
+			return;
+		}
 	}
 
 	void BufferToVertex()
@@ -741,7 +793,14 @@ namespace Draw
 
 void mainLoop()
 {
-	
+	static int frameCount = 0;
+	frameCount++;
+
+	if (frameCount % 60 == 0) // Логируем каждые 60 кадров
+	{
+		Logger::LogFormatted("Frame %d rendered\n", frameCount);
+	}
+
 	// 1. Устанавливаем топологию
 	InputAssembler::IA(InputAssembler::topology::triList);
 

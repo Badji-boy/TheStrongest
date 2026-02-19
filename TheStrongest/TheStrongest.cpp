@@ -40,7 +40,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     {
         return FALSE;
     }
+    Logger::Init();
 
+    Logger::Log("Application started\n");
+    Logger::LogFormatted("Command line: %S\n", lpCmdLine);
     Dx11Init();
 
     HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_THESTRONGEST));
@@ -73,6 +76,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         Sleep((DWORD)min(FRAME_LEN, max(FRAME_LEN - timer::frameRenderingDuration, 0)));
     }
 
+    Logger::Log("Application shutting down\n");
+    Logger::Shutdown();
     return (int)msg.wParam;
 }
 
