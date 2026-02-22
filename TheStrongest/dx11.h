@@ -413,7 +413,7 @@ namespace Buffers
 		{ XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f)},
 		{ XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f)},
 
-		{ XMFLOAT3(-1.0f, -1.0f, -1.0f),     XMFLOAT2(0.0f, 0.0f), XMFLOAT3(0.0f, -1.0f, 0.0f)},
+		/*{ XMFLOAT3(-1.0f, -1.0f, -1.0f),     XMFLOAT2(0.0f, 0.0f), XMFLOAT3(0.0f, -1.0f, 0.0f)},
 		{ XMFLOAT3(1.0f, -1.0f, -1.0f),      XMFLOAT2(1.0f, 0.0f), XMFLOAT3(0.0f, -1.0f, 0.0f)},
 		{ XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f)},
 		{ XMFLOAT3(-1.0f, -1.0f, 1.0f),      XMFLOAT2(0.0f, 1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f)},
@@ -436,15 +436,15 @@ namespace Buffers
 		{ XMFLOAT3(-1.0f, -1.0f, 1.0f),      XMFLOAT2(0.0f, 0.0f), XMFLOAT3(0.0f, 0.0f, 1.0f)},
 		{ XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT2(1.0f, 0.0f), XMFLOAT3(0.0f, 0.0f, 1.0f)},
 		{ XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f)},
-		{ XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f)},
+		{ XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f)},*/
 	};
 
 	WORD indices[] =
 	{
 		3,1,0,
-		2,1,3,
+		2,1,3
 
-		6,4,5,
+		/*6,4,5,
 		7,4,6,
 
 		11,9,8,
@@ -457,7 +457,7 @@ namespace Buffers
 		18,17,19,
 
 		22,20,21,
-		23,20,22
+		23,20,22*/
 	};
 
 	void Create(const wchar_t* filename)
@@ -617,9 +617,10 @@ namespace Matrixes
 	void Init()
 	{
 		// Инициализация матрицы мира
-		g_World = XMMatrixIdentity();
+		XMMATRIX mScale = XMMatrixScaling(8.0f, 3.0f, 8.0f);
+		g_World = mScale;
 		// Инициализация матрицы вида
-		XMVECTOR Eye = XMVectorSet(0.0f, 4.0f, -10.0f, 0.0f);  // Откуда смотрим
+		XMVECTOR Eye = XMVectorSet(-4.0f, 6.0f, -6.0f, 0.0f);  // Откуда смотрим
 		XMVECTOR At = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);    // Куда смотрим
 		XMVECTOR Up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);    // Направление верха
 		g_View = XMMatrixLookAtLH(Eye, At, Up);
@@ -712,20 +713,20 @@ namespace Matrixes
 	void Update(UINT nLightIndex)
 	{
 		// Небольшая проверка индекса
-		if (nLightIndex == MX_SETWORLD) {
-			// Если рисуем центральный куб: его надо просто вращать
-			g_World = XMMatrixRotationAxis(XMVectorSet(1.0f, 1.0f, 1.0f, 0.0f), t);
-			nLightIndex = 0;
-		}
-		else if (nLightIndex < 2) {
-			// Если рисуем источники света: перемещаем матрицу в точку и уменьшаем в 5 раз
-			g_World = XMMatrixTranslationFromVector(5.0f * XMLoadFloat4(&vLightDirs[nLightIndex]));
-			XMMATRIX mLightScale = XMMatrixScaling(0.2f, 0.2f, 0.2f);
-			g_World = mLightScale * g_World;
-		}
-		else {
-			nLightIndex = 0;
-		}
+		//if (nLightIndex == MX_SETWORLD) {
+		//	// Если рисуем центральный куб: его надо просто вращать
+		//	g_World = XMMatrixRotationAxis(XMVectorSet(1.0f, 1.0f, 1.0f, 0.0f), t);
+		//	nLightIndex = 0;
+		//}
+		//else if (nLightIndex < 2) {
+		//	// Если рисуем источники света: перемещаем матрицу в точку и уменьшаем в 5 раз
+		//	g_World = XMMatrixTranslationFromVector(5.0f * XMLoadFloat4(&vLightDirs[nLightIndex]));
+		//	XMMATRIX mLightScale = XMMatrixScaling(0.2f, 0.2f, 0.2f);
+		//	g_World = mLightScale * g_World;
+		//}
+		//else {
+		//	nLightIndex = 0;
+		//}
 		// Обновление содержимого константного буфера
 		Buffers::ConstantBufferMatrixes cb1;    // временный контейнер для первого буферв
 		Buffers::ConstantBufferLight cb2;    // временный контейнер для второго буфера
@@ -807,7 +808,7 @@ void mainLoop()
 	// 2. Очищаем буфер
 	Draw::Clear({ 0,0,1,1});
 
-	Matrixes::UpdateLight();
+	//Matrixes::UpdateLight();
 
 	
 
@@ -825,19 +826,15 @@ void mainLoop()
 	context->PSSetSamplers(0, 1, &SamplerLinear);
 	
 
-	Shaders::pShader(1);
+	Shaders::pShader(0);
 
-	for (int m = 0; m < 2; m++)
-	{
-		// 2) Устанавливаем матрицу мира источника света
-		Matrixes::Update(m);
-		// 3) Рисуем в заднем буфере 36 вершин
-		//context->PSSetConstantBuffers(0, 1, &constantBuffer);
-		Draw::Drawer();
-	}
+	Matrixes::Update(0);
+		
+	Draw::Drawer();
+	
 	Matrixes::Update(MX_SETWORLD);
 
-	Shaders::pShader(0);
+	//Shaders::pShader(0);
 
 	// 5. Рисуем
 	Draw::Drawer();

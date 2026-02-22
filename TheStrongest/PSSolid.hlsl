@@ -26,5 +26,5 @@ struct PS_INPUT // ¬ход€щие данные пиксельного шейдера
 
 float4 PS(PS_INPUT input) : SV_Target
 {
-    return vOutputColor;
+    return (1,1,1,1);
 }

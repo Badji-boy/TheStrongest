@@ -3,10 +3,18 @@ Program initialized
 Application started
 Command line: 
 Device::Init started
-Window dimensions: 1424x700
+Window dimensions: 1424x694
 Device::Init completed
 Frame 60 rendered
 Frame 120 rendered
 Frame 180 rendered
+Frame 240 rendered
+Frame 300 rendered
+Frame 360 rendered
+Frame 420 rendered
+Frame 480 rendered
+Frame 540 rendered
+Frame 600 rendered
+Frame 660 rendered
 Application shutting down
 === Logging ended ===

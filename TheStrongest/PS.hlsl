@@ -25,13 +25,12 @@ struct PS_INPUT
 
 float4 PS(PS_INPUT input) : SV_TARGET
 {
-    float4 finalColor = 0;
-    // складываем освещенность пикселя от всех источников света
-    for (int i = 0; i < 2; i++)
-    {
-        finalColor += saturate(dot(vLightDir[i], input.Norm) * vLightColor[i]);
-    }
-    finalColor *= txDiffuse.Sample(samLinear, input.Tex);
-    finalColor.a = 1;
+    float4 finalColor = 1;
+     //складываем освещенность пикселя от всех источников света
+    //for (int i = 0; i < 2; i++)
+    //{
+    //    finalColor += saturate(dot(vLightDir[i], input.Norm) * vLightColor[i]);
+    //}
+    finalColor = txDiffuse.Sample(samLinear, input.Tex);
     return finalColor;
 }
