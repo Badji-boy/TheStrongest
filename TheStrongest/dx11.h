@@ -612,6 +612,197 @@ namespace Buffers
 	}
 }
 
+namespace Terrain
+{
+	// Размеры карты
+	const int MAP_WIDTH = 20;    // Количество тайлов по X
+	const int MAP_HEIGHT = 20;   // Количество тайлов по Z
+	const float TILE_SIZE = 1.0f; // Размер одного тайла в мировых единицах
+
+	// Типы тайлов (для будущего расширения)
+	enum TileType
+	{
+		TILE_GRASS = 0,
+		TILE_DIRT,
+		TILE_WATER,
+		TILE_ROAD
+	};
+
+	// Структура одного тайла
+	struct Tile
+	{
+		TileType type;
+		float height;  // Высота тайла (для холмов)
+		bool isWalkable;
+	};
+
+	// Данные карты
+	Tile map[MAP_WIDTH][MAP_HEIGHT];
+
+	// Буферы для отрисовки карты
+	ID3D11Buffer* terrainVertexBuffer = NULL;
+	ID3D11Buffer* terrainIndexBuffer = NULL;
+	int terrainIndexCount = 0;
+
+	void GenerateMap()
+	{
+		Logger::LogFormatted("Generating terrain map %dx%d", MAP_WIDTH, MAP_HEIGHT);
+
+		// Инициализируем карту
+		for (int z = 0; z < MAP_HEIGHT; z++)
+		{
+			for (int x = 0; x < MAP_WIDTH; x++)
+			{
+				// Базовый тип - трава
+				map[x][z].type = TILE_GRASS;
+				map[x][z].isWalkable = true;
+
+				// Создаем немного разнообразия
+				// Вода по краям
+				if (x == 0 || x == MAP_WIDTH - 1 || z == 0 || z == MAP_HEIGHT - 1)
+				{
+					map[x][z].type = TILE_WATER;
+					map[x][z].isWalkable = false;
+				}
+				// Случайные пятна грязи
+				else if (rand() % 100 < 10)
+				{
+					map[x][z].type = TILE_DIRT;
+				}
+
+				// Небольшие холмы (синусоидальная волна)
+				float heightX = sin(x * 0.5f) * 0.2f;
+				float heightZ = cos(z * 0.5f) * 0.2f;
+				map[x][z].height = heightX + heightZ;
+			}
+		}
+
+		Logger::Log("Map generated successfully");
+	}
+
+	struct TerrainVertex
+	{
+		XMFLOAT3 Pos;
+		XMFLOAT2 Tex;
+		XMFLOAT3 Normal;
+	};
+
+	void CreateTerrainMesh()
+	{
+		std::vector<TerrainVertex> vertices;
+		std::vector<WORD> indices;
+
+		// Создаем вершины для каждого тайла
+		for (int z = 0; z < MAP_HEIGHT; z++)
+		{
+			for (int x = 0; x < MAP_WIDTH; x++)
+			{
+				float xPos = (x - MAP_WIDTH / 2.0f) * TILE_SIZE;
+				float zPos = (z - MAP_HEIGHT / 2.0f) * TILE_SIZE;
+				float yPos = map[x][z].height;
+
+				// Выбираем текстуру в зависимости от типа тайла
+				float texU, texV;
+				switch (map[x][z].type)
+				{
+				case TILE_GRASS:
+					texU = 0.0f; texV = 0.0f;
+					break;
+				case TILE_DIRT:
+					texU = 0.5f; texV = 0.0f;
+					break;
+				case TILE_WATER:
+					texU = 0.0f; texV = 0.5f;
+					break;
+				default:
+					texU = 0.0f; texV = 0.0f;
+				}
+
+				TerrainVertex v;
+				v.Pos = XMFLOAT3(xPos, yPos, zPos);
+				v.Tex = XMFLOAT2(texU, texV);
+				v.Normal = XMFLOAT3(0.0f, 1.0f, 0.0f); // Временная нормаль
+				vertices.push_back(v);
+			}
+		}
+
+		// Создаем индексы для треугольников (по 2 треугольника на каждый квадрат)
+		for (int z = 0; z < MAP_HEIGHT - 1; z++)
+		{
+			for (int x = 0; x < MAP_WIDTH - 1; x++)
+			{
+				int topLeft = z * MAP_WIDTH + x;
+				int topRight = topLeft + 1;
+				int bottomLeft = (z + 1) * MAP_WIDTH + x;
+				int bottomRight = bottomLeft + 1;
+
+				// Треугольник 1 (верхний-левый, верхний-правый, нижний-левый)
+				indices.push_back(topLeft);
+				indices.push_back(topRight);
+				indices.push_back(bottomLeft);
+
+				// Треугольник 2 (верхний-правый, нижний-правый, нижний-левый)
+				indices.push_back(topRight);
+				indices.push_back(bottomRight);
+				indices.push_back(bottomLeft);
+			}
+		}
+
+		terrainIndexCount = (int)indices.size();
+
+		// Создаем вершинный буфер
+		D3D11_BUFFER_DESC bd = {};
+		bd.Usage = D3D11_USAGE_DEFAULT;
+		bd.ByteWidth = sizeof(TerrainVertex) * vertices.size();
+		bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+		bd.CPUAccessFlags = 0;
+
+		D3D11_SUBRESOURCE_DATA initData = {};
+		initData.pSysMem = vertices.data();
+
+		HRESULT hr = device->CreateBuffer(&bd, &initData, &terrainVertexBuffer);
+		if (FAILED(hr))
+		{
+			Logger::LogFormatted("Failed to create terrain vertex buffer", hr);
+		}
+
+		// Создаем индексный буфер
+		bd.ByteWidth = sizeof(WORD) * indices.size();
+		bd.BindFlags = D3D11_BIND_INDEX_BUFFER;
+		initData.pSysMem = indices.data();
+
+		hr = device->CreateBuffer(&bd, &initData, &terrainIndexBuffer);
+		if (FAILED(hr))
+		{
+			Logger::LogFormatted("Failed to create terrain index buffer", hr);
+		}
+
+		Logger::LogFormatted("Terrain mesh created: %zu vertices, %d indices",
+			vertices.size(), terrainIndexCount);
+
+
+	}
+
+	// Функция для пересчёта нормалей (для правильного освещения)
+	void RecalculateNormals()
+	{
+		// Здесь можно добавить код для вычисления нормалей на основе высот соседей
+		Logger::Log("Recalculating terrain normals");
+	}
+
+	void Draw()
+	{
+		// Устанавливаем буферы
+		UINT stride = sizeof(Terrain::TerrainVertex);
+		UINT offset = 0;
+		context->IASetVertexBuffers(0, 1, &terrainVertexBuffer, &stride, &offset);
+		context->IASetIndexBuffer(terrainIndexBuffer, DXGI_FORMAT_R16_UINT, 0);
+
+		// Рисуем
+		context->DrawIndexed(terrainIndexCount, 0, 0);
+	}
+}
+
 namespace Matrixes
 {
 	void Init()
@@ -620,7 +811,7 @@ namespace Matrixes
 		XMMATRIX mScale = XMMatrixScaling(8.0f, 3.0f, 8.0f);
 		g_World = mScale;
 		// Инициализация матрицы вида
-		XMVECTOR Eye = XMVectorSet(-4.0f, 6.0f, -6.0f, 0.0f);  // Откуда смотрим
+		XMVECTOR Eye = XMVectorSet(10.0f, 12.0f, -10.0f, 0.0f);  // Откуда смотрим
 		XMVECTOR At = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);    // Куда смотрим
 		XMVECTOR Up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);    // Направление верха
 		g_View = XMMatrixLookAtLH(Eye, At, Up);
@@ -752,7 +943,12 @@ void Dx11Init()
 
 	Device::Init();
 	Shaders::Init();
-	Buffers::Init();
+
+	// Инициализируем террейн
+	Terrain::GenerateMap();
+	Terrain::CreateTerrainMesh();
+
+	Buffers::Init();  // Ваши объекты (кубы и т.д.)
 	Matrixes::Init();
 }
 
@@ -794,49 +990,47 @@ namespace Draw
 
 void mainLoop()
 {
-	static int frameCount = 0;
-	frameCount++;
+	// 1. Очищаем буфер
+	Draw::Clear({ 0.2f, 0.3f, 0.5f, 1.0f }); // Небо голубое
 
-	if (frameCount % 60 == 0) // Логируем каждые 60 кадров
-	{
-		Logger::LogFormatted("Frame %d rendered\n", frameCount);
-	}
-
-	// 1. Устанавливаем топологию
-	InputAssembler::IA(InputAssembler::topology::triList);
-
-	// 2. Очищаем буфер
-	Draw::Clear({ 0,0,1,1});
-
-	//Matrixes::UpdateLight();
-
-	
-
-	// 3. Установка rendertarget
+	// 2. Настройка рендер таргета
 	context->OMSetRenderTargets(1, &renderTargetView, depthStencilView);
-	
-    // 4. Устанавливаем шейдеры
+
+	// 3. Устанавливаем шейдеры и текстуру для террейна
 	Shaders::vShader(0);
-	context->VSSetConstantBuffers(0, 1, &CBMatrixes);
-	context->VSSetConstantBuffers(1, 1, &CBLight);
-	context->PSSetConstantBuffers(0, 1, &CBMatrixes);
-	context->PSSetConstantBuffers(1, 1, &CBLight);
-	context->PSSetShaderResources(0, 1, &TextureRV);
-
-	context->PSSetSamplers(0, 1, &SamplerLinear);
-	
-
 	Shaders::pShader(0);
+	context->VSSetConstantBuffers(0, 1, &CBMatrixes);
+	context->PSSetConstantBuffers(0, 1, &CBMatrixes);
+	context->PSSetShaderResources(0, 1, &TextureRV);
+	context->PSSetSamplers(0, 1, &SamplerLinear);
 
-	Matrixes::Update(0);
-		
-	Draw::Drawer();
-	
-	Matrixes::Update(MX_SETWORLD);
+	// 4. Рисуем террейн
+	Matrixes::UpdateLight();
 
-	//Shaders::pShader(0);
+	// Устанавливаем матрицу мира для террейна (единичная, так как он в центре мира)
+	Buffers::ConstantBufferMatrixes cb;
+	cb.mWorld = XMMatrixIdentity();
+	cb.mView = XMMatrixTranspose(g_View);
+	cb.mProjection = XMMatrixTranspose(g_Projection);
+	context->UpdateSubresource(CBMatrixes, 0, NULL, &cb, 0, 0);
 
-	// 5. Рисуем
+	Terrain::Draw();
+
+	// 5. Рисуем объекты (ваши кубы и т.д.)
+	InputAssembler::IA(InputAssembler::topology::triList);
+	Buffers::BufferToVertex();
+
+	// Рисуем источники света
+	/*Shaders::pShader(1);
+	for (int m = 0; m < 2; m++)
+	{
+		Matrixes::Update(m);
+		Draw::Drawer();
+	}*/
+
+	// Рисуем основной объект
+	//Matrixes::Update(MX_SETWORLD);
+	Shaders::pShader(0);
 	Draw::Drawer();
 
 	// 6. Показываем результат
