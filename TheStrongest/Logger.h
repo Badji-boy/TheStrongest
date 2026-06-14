@@ -10,10 +10,9 @@ namespace Logger
         if (logFile)
         {
             fprintf(logFile, "%s", message);
-            fflush(logFile); // Сразу записываем в файл
+            fflush(logFile); 
         }
 
-        // Также выводим в OutputDebugString для отладки
         OutputDebugStringA(message);
     }
 
