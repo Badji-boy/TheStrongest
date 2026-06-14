@@ -45,7 +45,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     Logger::Log("Application started\n");
     Logger::LogFormatted("Command line: %S\n", lpCmdLine);
     Dx11Init();
-
     HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_THESTRONGEST));
 
     MSG msg = { 0 };
@@ -78,6 +77,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
     Logger::Log("Application shutting down\n");
     Logger::Shutdown();
+    if (g_pAudioManager)
+    {
+        delete g_pAudioManager;
+        g_pAudioManager = nullptr;
+    }
+
     return (int)msg.wParam;
 }
 
@@ -133,6 +138,24 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
     ShowWindow(hWnd, nCmdShow);
     UpdateWindow(hWnd);
+
+    g_pAudioManager = new Audio::AudioManager();
+    if (!g_pAudioManager->Initialize(hWnd))
+    {
+        Logger::Log("Failed to initialize audio system, continuing without sound");
+       
+    }
+    else
+    {
+        // Загружаем звуковые эффекты
+        //g_pAudioManager->LoadSound("footstep", "sounds/footstep.wav");
+        //g_pAudioManager->LoadSound("click", "sounds/click.wav");
+        g_pAudioManager->LoadSound("background", "sounds/music.wav", true); // Зацикленная музыка
+
+        // Запускаем фоновую музыку
+        g_pAudioManager->PlaySound("background");
+    }
+
 
     return TRUE;
 }

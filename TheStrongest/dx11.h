@@ -3,7 +3,16 @@
 #pragma comment(lib, "d3dcompiler.lib")
 #pragma comment(lib, "dxguid.lib")
 #pragma comment(lib, "winmm.lib")
-#pragma comment(lib, "xaudio2.lib")
+//#pragma comment(lib, "xaudio2.lib")  
+
+#pragma comment(lib, "ole32.lib")    
+
+#include <xaudio2.h>
+#include <xaudio2fx.h>
+#include <comdef.h> 
+#include <winrt/base.h>
+
+
 
 
 #include <d3d11.h>
@@ -17,6 +26,10 @@
 #include <iostream>
 #include "vector"
 #include "Logger.h"
+
+
+
+
 
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
@@ -50,6 +63,9 @@ XMFLOAT4              vLightColors[2];         // Цвет источников
 
 ID3D11ShaderResourceView* TextureRV = NULL;        // Объект текстуры
 ID3D11SamplerState* SamplerLinear = NULL;    // Параметры наложения текстуры
+
+
+
 
 
 namespace timer
@@ -987,6 +1003,472 @@ namespace Draw
 	}
 }
 
+namespace Audio
+{
+	// Структура для хранения информации о WAV файле
+	struct WaveFormatEx : public WAVEFORMATEX
+	{
+		WaveFormatEx()
+		{
+			ZeroMemory(this, sizeof(WAVEFORMATEX));
+			wFormatTag = WAVE_FORMAT_PCM;
+		}
+	};
+
+	struct WaveData
+	{
+		WaveFormatEx wfx;           // Формат аудио
+		std::vector<BYTE> data;     // Аудио данные
+		DWORD dataSize;              // Размер данных в байтах
+	};
+
+	class WaveReader
+	{
+	public:
+		static bool ReadWaveFile(const char* filename, WaveData& waveData)
+		{
+			Logger::LogFormatted("Reading wave file: %s", filename);
+
+			FILE* file = nullptr;
+			fopen_s(&file, filename, "rb");
+			if (!file)
+			{
+				Logger::LogError("Failed to open wave file", 0);
+				return false;
+			}
+
+			// Чтение RIFF заголовка
+			char chunkId[4];
+			DWORD chunkSize;
+
+			fread(chunkId, 1, 4, file);
+			if (memcmp(chunkId, "RIFF", 4) != 0)
+			{
+				Logger::LogError("Not a RIFF file", 0);
+				fclose(file);
+				return false;
+			}
+
+			fread(&chunkSize, 4, 1, file);
+
+			fread(chunkId, 1, 4, file);
+			if (memcmp(chunkId, "WAVE", 4) != 0)
+			{
+				Logger::LogError("Not a WAVE file", 0);
+				fclose(file);
+				return false;
+			}
+
+			// Поиск fmt и data чанков
+			bool foundFormat = false;
+			bool foundData = false;
+
+			while (!foundData && !feof(file))
+			{
+				fread(chunkId, 1, 4, file);
+				fread(&chunkSize, 4, 1, file);
+
+				if (memcmp(chunkId, "fmt ", 4) == 0)
+				{
+					// Читаем формат
+					fread(&waveData.wfx, chunkSize, 1, file);
+					foundFormat = true;
+					Logger::LogFormatted("Found fmt chunk: %d bytes", chunkSize);
+				}
+				else if (memcmp(chunkId, "data", 4) == 0)
+				{
+					// Читаем аудио данные
+					waveData.data.resize(chunkSize);
+					fread(waveData.data.data(), chunkSize, 1, file);
+					waveData.dataSize = chunkSize;
+					foundData = true;
+					Logger::LogFormatted("Found data chunk: %d bytes", chunkSize);
+				}
+				else
+				{
+					// Пропускаем неизвестные чанки
+					fseek(file, chunkSize, SEEK_CUR);
+				}
+			}
+
+			fclose(file);
+
+			if (!foundFormat || !foundData)
+			{
+				Logger::LogError("Missing fmt or data chunk", 0);
+				return false;
+			}
+
+			Logger::LogFormatted("Wave file loaded: %d Hz, %d channels, %d bits",
+				waveData.wfx.nSamplesPerSec,
+				waveData.wfx.nChannels,
+				waveData.wfx.wBitsPerSample);
+
+			return true;
+		}
+	};
+
+	class VoiceCallback : public IXAudio2VoiceCallback
+	{
+	public:
+		VoiceCallback() : m_hBufferEndEvent(CreateEvent(NULL, FALSE, FALSE, NULL)) {}
+		~VoiceCallback() { CloseHandle(m_hBufferEndEvent); }
+
+		// Используем STDMETHODCALLTYPE для правильного соглашения вызова
+		void STDMETHODCALLTYPE OnStreamEnd() override
+		{
+			SetEvent(m_hBufferEndEvent);
+			Logger::Log("Sound playback finished");
+		}
+
+		// Остальные методы тоже должны иметь STDMETHODCALLTYPE
+		void STDMETHODCALLTYPE OnVoiceProcessingPassEnd() override {}
+		void STDMETHODCALLTYPE OnVoiceProcessingPassStart(UINT32 SamplesRequired) override {}
+		void STDMETHODCALLTYPE OnBufferEnd(void* pBufferContext) override
+		{
+			if (pBufferContext)
+			{
+				HANDLE* pEvent = (HANDLE*)pBufferContext;
+				SetEvent(*pEvent);
+			}
+		}
+		void STDMETHODCALLTYPE OnBufferStart(void* pBufferContext) override {}
+		void STDMETHODCALLTYPE OnLoopEnd(void* pBufferContext) override {}
+		void STDMETHODCALLTYPE OnVoiceError(void* pBufferContext, HRESULT Error) override
+		{
+			Logger::LogError("Voice error occurred", Error);
+		}
+
+		HANDLE GetBufferEndEvent() const { return m_hBufferEndEvent; }
+
+	private:
+		HANDLE m_hBufferEndEvent;
+	};
+	// Класс звука
+	class Sound
+	{
+	private:
+		IXAudio2SourceVoice* m_pSourceVoice;
+		WaveData m_waveData;
+		VoiceCallback m_callback;
+		bool m_isPlaying;
+		bool m_isLooping;
+		std::string m_name;
+
+	public:
+		Sound() : m_pSourceVoice(nullptr), m_isPlaying(false), m_isLooping(false) {}
+
+		~Sound()
+		{
+			Stop();
+			if (m_pSourceVoice)
+			{
+				m_pSourceVoice->DestroyVoice();
+				m_pSourceVoice = nullptr;
+			}
+		}
+
+		bool Load(const char* filename, bool loop = false)
+		{
+			m_name = filename;
+			m_isLooping = loop;
+
+			if (!WaveReader::ReadWaveFile(filename, m_waveData))
+			{
+				Logger::LogError("Failed to load sound file", 0);
+				return false;
+			}
+
+			return true;
+		}
+
+		bool CreateVoice(IXAudio2* pXAudio2)
+		{
+			if (!pXAudio2) return false;
+
+			// Создаём source voice с callback'ами [citation:3][citation:8]
+			HRESULT hr = pXAudio2->CreateSourceVoice(
+				&m_pSourceVoice,
+				(WAVEFORMATEX*)&m_waveData.wfx,
+				0,                    // Flags
+				XAUDIO2_DEFAULT_FREQ_RATIO,
+				&m_callback,          // Callback interface
+				NULL,
+				NULL
+			);
+
+			if (FAILED(hr))
+			{
+				Logger::LogError("CreateSourceVoice failed", hr);
+				return false;
+			}
+
+			Logger::LogFormatted("Source voice created for: %s", m_name.c_str());
+			return true;
+		}
+
+		void Play()
+		{
+			if (!m_pSourceVoice) return;
+
+			// Останавливаем если уже играет
+			if (m_isPlaying)
+			{
+				Stop();
+			}
+
+			// Подготавливаем буфер для отправки [citation:5]
+			XAUDIO2_BUFFER buffer = { 0 };
+			buffer.AudioBytes = m_waveData.dataSize;
+			buffer.pAudioData = m_waveData.data.data();
+			buffer.Flags = XAUDIO2_END_OF_STREAM;
+
+			if (m_isLooping)
+			{
+				buffer.LoopCount = XAUDIO2_LOOP_INFINITE;
+				Logger::LogFormatted("Playing sound in loop mode: %s", m_name.c_str());
+			}
+			else
+			{
+				buffer.LoopCount = 0;
+				Logger::LogFormatted("Playing sound: %s", m_name.c_str());
+			}
+
+			HRESULT hr = m_pSourceVoice->SubmitSourceBuffer(&buffer);
+			if (FAILED(hr))
+			{
+				Logger::LogError("SubmitSourceBuffer failed", hr);
+				return;
+			}
+
+			hr = m_pSourceVoice->Start(0, XAUDIO2_COMMIT_NOW);
+			if (SUCCEEDED(hr))
+			{
+				m_isPlaying = true;
+			}
+			else
+			{
+				Logger::LogError("Start failed", hr);
+			}
+		}
+
+		void Stop()
+		{
+			if (m_pSourceVoice && m_isPlaying)
+			{
+				m_pSourceVoice->Stop(0);
+				m_pSourceVoice->FlushSourceBuffers();  // Очищаем очередь буферов [citation:5]
+				m_isPlaying = false;
+				Logger::LogFormatted("Sound stopped: %s", m_name.c_str());
+			}
+		}
+
+		void SetVolume(float volume)
+		{
+			if (m_pSourceVoice)
+			{
+				// Volume range: 0.0 (silent) to 1.0 (full volume)
+				m_pSourceVoice->SetVolume(volume);
+			}
+		}
+
+		void SetPitch(float pitchRatio)
+		{
+			if (m_pSourceVoice)
+			{
+				// pitchRatio: 1.0 = normal, >1.0 = higher pitch, <1.0 = lower pitch [citation:5]
+				m_pSourceVoice->SetFrequencyRatio(pitchRatio);
+			}
+		}
+
+		bool IsPlaying() const { return m_isPlaying; }
+
+		void WaitForCompletion()
+		{
+			if (m_isPlaying && !m_isLooping)
+			{
+				WaitForSingleObject(m_callback.GetBufferEndEvent(), INFINITE);
+				m_isPlaying = false;
+			}
+		}
+	};
+
+	class AudioManager
+	{
+	private:
+		winrt::com_ptr<IXAudio2> m_pXAudio2;     // Основной XAudio2 движок [citation:9]
+		IXAudio2MasteringVoice* m_pMasteringVoice; // Главный голос для вывода звука
+		std::map<std::string, Sound*> m_sounds;
+		bool m_isInitialized;
+
+	public:
+		AudioManager() : m_pMasteringVoice(nullptr), m_isInitialized(false) {}
+
+		~AudioManager()
+		{
+			Shutdown();
+		}
+
+		bool Initialize(HWND hWnd)
+		{
+			Logger::Log("Initializing XAudio2 audio system...");
+
+			HRESULT hr;
+
+			// Инициализация COM (XAudio2 требует COM) [citation:9]
+			hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+			if (FAILED(hr) && hr != S_FALSE)
+			{
+				Logger::LogError("CoInitializeEx failed", hr);
+				return false;
+			}
+
+			// Создаём экземпляр XAudio2 [citation:9]
+#ifdef _DEBUG
+			UINT32 flags = XAUDIO2_DEBUG_ENGINE;
+#else
+			UINT32 flags = 0;
+#endif
+
+			hr = XAudio2Create(m_pXAudio2.put(), flags, XAUDIO2_DEFAULT_PROCESSOR);
+			if (FAILED(hr))
+			{
+				Logger::LogError("XAudio2Create failed", hr);
+				return false;
+			}
+
+			// Создаём mastering voice для вывода на аудио устройство [citation:4]
+			hr = m_pXAudio2->CreateMasteringVoice(&m_pMasteringVoice);
+			if (FAILED(hr))
+			{
+				Logger::LogError("CreateMasteringVoice failed", hr);
+				return false;
+			}
+
+			m_isInitialized = true;
+			Logger::Log("XAudio2 initialized successfully");
+			return true;
+		}
+
+		void Shutdown()
+		{
+			// Останавливаем все звуки
+			for (auto& pair : m_sounds)
+			{
+				delete pair.second;
+			}
+			m_sounds.clear();
+
+			// Освобождаем ресурсы XAudio2
+			if (m_pMasteringVoice)
+			{
+				m_pMasteringVoice->DestroyVoice();
+				m_pMasteringVoice = nullptr;
+			}
+
+			m_pXAudio2 = nullptr;
+			CoUninitialize();
+
+			m_isInitialized = false;
+			Logger::Log("XAudio2 shutdown");
+		}
+
+		bool LoadSound(const std::string& name, const char* filename, bool loop = false)
+		{
+			if (!m_isInitialized)
+			{
+				Logger::LogError("Audio system not initialized", 0);
+				return false;
+			}
+
+			if (m_sounds.find(name) != m_sounds.end())
+			{
+				Logger::LogFormatted("Sound already loaded: %s", name.c_str());
+				return true;
+			}
+
+			Sound* sound = new Sound();
+			if (!sound->Load(filename, loop))
+			{
+				delete sound;
+				return false;
+			}
+
+			if (!sound->CreateVoice(m_pXAudio2.get()))
+			{
+				delete sound;
+				return false;
+			}
+
+			m_sounds[name] = sound;
+			Logger::LogFormatted("Sound loaded: %s -> %s", name.c_str(), filename);
+			return true;
+		}
+
+		void PlaySound(const std::string& name)
+		{
+			auto it = m_sounds.find(name);
+			if (it != m_sounds.end())
+			{
+				it->second->Play();
+			}
+			else
+			{
+				Logger::LogFormatted("Sound not found: %s", name.c_str());
+			}
+		}
+
+		void StopSound(const std::string& name)
+		{
+			auto it = m_sounds.find(name);
+			if (it != m_sounds.end())
+			{
+				it->second->Stop();
+			}
+		}
+
+		void SetVolume(const std::string& name, float volume)
+		{
+			auto it = m_sounds.find(name);
+			if (it != m_sounds.end())
+			{
+				// Обрезаем значение в диапазон [0.0, 1.0]
+				volume = max(0.0f, min(1.0f, volume));
+				it->second->SetVolume(volume);
+			}
+		}
+
+		void SetPitch(const std::string& name, float pitchRatio)
+		{
+			auto it = m_sounds.find(name);
+			if (it != m_sounds.end())
+			{
+				// pitchRatio: 0.5 (одна октава ниже) до 2.0 (одна октава выше)
+				pitchRatio = max(0.5f, min(2.0f, pitchRatio));
+				it->second->SetPitch(pitchRatio);
+			}
+		}
+
+		void StopAll()
+		{
+			for (auto& pair : m_sounds)
+			{
+				pair.second->Stop();
+			}
+		}
+
+		//// Обновление аудио движка (должен вызываться каждый кадр)
+		//void Update()
+		//{
+		//	if (m_pXAudio2)
+		//	{
+		//		// XAudio2 не требует явного Update, но мы можем проверить состояние
+		//		// и обработать возможные ошибки
+		//	}
+		//}
+	};
+}
+Audio::AudioManager* g_pAudioManager = nullptr;
 
 void mainLoop()
 {
